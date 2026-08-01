@@ -1,5 +1,5 @@
-import { pipeline, read_audio } from '@xenova/transformers';
-import { writeFileSync, unlinkSync } from 'fs';
+import { pipeline } from '@xenova/transformers';
+import { writeFileSync, unlinkSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
@@ -18,6 +18,7 @@ function getTranscriber() {
     transcriberPromise = pipeline('automatic-speech-recognition', STT_MODEL)
       .then((t) => {
         sttReady = true;
+        console.log('STT model ready:', STT_MODEL);
         return t;
       });
   }
@@ -36,17 +37,36 @@ function convertToWav(inputPath, outputPath) {
   });
 }
 
+/** Parse 16-bit PCM WAV to Float32Array for transformers.js in Node */
+function loadWavAsFloat32(wavPath) {
+  const buf = readFileSync(wavPath);
+  let offset = 12;
+  while (offset + 8 <= buf.length) {
+    const id = buf.toString('ascii', offset, offset + 4);
+    const size = buf.readUInt32LE(offset + 4);
+    if (id === 'data') {
+      const start = offset + 8;
+      const numSamples = Math.floor(size / 2);
+      const audio = new Float32Array(numSamples);
+      for (let i = 0; i < numSamples; i++) {
+        audio[i] = buf.readInt16LE(start + i * 2) / 32768;
+      }
+      return audio;
+    }
+    offset += 8 + size;
+  }
+  throw new Error('Invalid WAV file — no data chunk');
+}
+
 export async function checkWhisper() {
   return {
-    ok: true,
+    ok: sttReady || Boolean(transcriberPromise),
     engine: 'transformers',
     model: STT_MODEL,
     ready: sttReady,
-    note: 'Ollama whisper models cannot transcribe; using local Xenova Whisper',
   };
 }
 
-// Warm model in background so first utterance is faster
 getTranscriber().catch((err) => console.warn('STT model preload failed:', err.message));
 
 export async function transcribeAudio(buffer, mimeType = 'audio/webm') {
@@ -59,12 +79,16 @@ export async function transcribeAudio(buffer, mimeType = 'audio/webm') {
     const audioPath = ext === 'wav' ? inputPath : wavPath;
     if (ext !== 'wav') await convertToWav(inputPath, wavPath);
 
-    const audio = await read_audio(audioPath, 16000);
+    const audio = loadWavAsFloat32(audioPath);
     const transcriber = await getTranscriber();
     const result = await transcriber(audio, { language: 'english', task: 'transcribe' });
-    return (result.text || '').trim();
+    const text = (result.text || '').trim();
+    console.log('STT:', text || '(empty)');
+    return text;
   } finally {
     try { unlinkSync(inputPath); } catch { /* ignore */ }
-    try { unlinkSync(wavPath); } catch { /* ignore */ }
+    if (inputPath !== wavPath) {
+      try { unlinkSync(wavPath); } catch { /* ignore */ }
+    }
   }
 }

@@ -29,8 +29,8 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
   const silenceStartRef = useRef(null);
   const speechDetectedRef = useRef(false);
   const listenLoopRef = useRef(null);
-  const isSpeakingRef = useRef(false);
-  const handleTranscriptRef = useRef(null);
+  const playbackCtxRef = useRef(null);
+  const micLevelRef = useRef(0);
 
   const clearErrors = () => {
     setError(null);
@@ -44,23 +44,27 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     setSpeechPulse?.(0);
   };
 
-  const startAudioMonitor = (audioEl) => {
+  const startAudioMonitor = (ctx, sourceNode) => {
     try {
-      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') ctx.resume();
-
-      const source = ctx.createMediaElementSource(audioEl);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.15;
-      source.connect(analyser);
+      analyser.smoothingTimeConstant = 0.25;
+      sourceNode.connect(analyser);
       analyser.connect(ctx.destination);
 
       const timeData = new Uint8Array(analyser.fftSize);
       const state = audioStateRef.current;
+      state.envelope = 0;
+      state.pulse = 0;
+      state.prevEnvelope = 0;
 
       const tick = () => {
+        if (!isSpeakingRef.current) {
+          animFrameRef.current = null;
+          setAudioLevel?.(micLevelRef.current);
+          setSpeechPulse?.(0);
+          return;
+        }
         analyser.getByteTimeDomainData(timeData);
         let sumSq = 0;
         for (let i = 0; i < timeData.length; i++) {
@@ -97,32 +101,33 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       throw new Error(err.error || 'TTS failed');
     }
 
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    const arrayBuffer = await res.arrayBuffer();
+    if (!playbackCtxRef.current) playbackCtxRef.current = new AudioContext();
+    const ctx = playbackCtxRef.current;
+    if (ctx.state === 'suspended') await ctx.resume();
+
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
 
     return new Promise((resolve, reject) => {
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      audio.onplay = () => {
-        isSpeakingRef.current = true;
-        audioStateRef.current.speaking = true;
-        setIsSpeaking(true);
-        setMood('speaking');
-        startAudioMonitor(audio);
-      };
-      audio.onended = () => {
+      source.onended = () => {
         isSpeakingRef.current = false;
-        stopAudioMonitor();
         audioStateRef.current.speaking = false;
+        stopAudioMonitor();
         setIsSpeaking(false);
-        URL.revokeObjectURL(url);
+        setAudioLevel?.(micLevelRef.current);
+        setSpeechPulse?.(0);
+        setMood('listening');
         resolve();
       };
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error('Audio playback failed'));
-      };
-      audio.play().catch(reject);
+
+      isSpeakingRef.current = true;
+      audioStateRef.current.speaking = true;
+      setIsSpeaking(true);
+      setMood('speaking');
+      startAudioMonitor(ctx, source);
+      source.start(0);
     });
   }, [setAudioLevel, setMood, setSpeechPulse]);
 
@@ -163,6 +168,8 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
 
     processingRef.current = true;
     setIsListening(false);
+    setAudioLevel?.(0);
+    setSpeechPulse?.(0);
     setMood('thinking');
     setStatus('Transcribing…');
 
@@ -231,7 +238,12 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
         sumSq += v * v;
       }
       const rms = Math.sqrt(sumSq / timeData.length);
-      setAudioLevel?.(Math.min(1, rms * 3));
+      const level = Math.min(1, rms * 3);
+      micLevelRef.current = level;
+
+      if (!processingRef.current && !isSpeakingRef.current) {
+        setAudioLevel?.(level);
+      }
 
       const now = Date.now();
       const isSpeech = rms > SPEECH_THRESHOLD;
@@ -355,10 +367,10 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
 
   const disconnect = useCallback(() => {
     activeRef.current = false;
-    audioRef.current?.pause();
-    audioRef.current = null;
     stopAudioMonitor();
     releaseMic();
+    playbackCtxRef.current?.close().catch(() => {});
+    playbackCtxRef.current = null;
     setConnected(false);
     setIsSpeaking(false);
     setIsListening(false);
