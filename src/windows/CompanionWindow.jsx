@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import CompanionFace from '../components/CompanionFace';
+import RateLimitPanel from '../components/RateLimitPanel';
 import { useEventStream, SERVER } from '../hooks/useEventStream';
 import { useJarvisRealtime } from '../hooks/useJarvisRealtime';
+import { getStoredRateLimitUntil } from '../utils/parseApiError';
 
 const AUTO_VOICE = new URLSearchParams(window.location.search).get('autovoice') !== '0';
 
@@ -11,6 +13,7 @@ export default function CompanionWindow() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [speechPulse, setSpeechPulse] = useState(0);
   const [pendingConfirm, setPendingConfirm] = useState(null);
+  const [rateLimitExpired, setRateLimitExpired] = useState(false);
   const { artifacts, confirmations } = useEventStream();
   const manualStopRef = useRef(false);
   const autoStartedRef = useRef(false);
@@ -38,7 +41,7 @@ export default function CompanionWindow() {
   const {
     connected,
     connecting,
-    error,
+    errorInfo,
     isSpeaking,
     isListening,
     connect,
@@ -46,9 +49,17 @@ export default function CompanionWindow() {
     confirmAction,
   } = useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, setMood, setStatus });
 
-  // Auto-start voice when companion opens
+  const storedLimit = getStoredRateLimitUntil();
+  const isRateLimited =
+    !rateLimitExpired &&
+    (errorInfo?.code === 'rate_limit' ||
+      errorInfo?.code === 'quota' ||
+      (storedLimit && storedLimit > Date.now()));
+
+  const retryAt = errorInfo?.retryAt || storedLimit;
+
   useEffect(() => {
-    if (!AUTO_VOICE || autoStartedRef.current) return;
+    if (!AUTO_VOICE || autoStartedRef.current || isRateLimited) return;
     autoStartedRef.current = true;
     manualStopRef.current = false;
 
@@ -68,28 +79,14 @@ export default function CompanionWindow() {
     };
     waitAndConnect();
     return () => { cancelled = true; };
-  }, [connect]);
-
-  // Auto-reconnect after errors unless user clicked Stop
-  useEffect(() => {
-    if (!AUTO_VOICE || manualStopRef.current || connected || connecting) return;
-    if (!error) return;
-
-    const timer = setTimeout(() => {
-      if (!manualStopRef.current) {
-        setStatus('Reconnecting…');
-        connect();
-      }
-    }, 8000);
-    return () => clearTimeout(timer);
-  }, [error, connected, connecting, connect]);
+  }, [connect, isRateLimited]);
 
   useEffect(() => {
-    if (confirmations.length > 0) {
+    if (confirmations.length > 0 && !isRateLimited) {
       setPendingConfirm(confirmations[confirmations.length - 1]);
       setMood('concerned');
     }
-  }, [confirmations]);
+  }, [confirmations, isRateLimited]);
 
   const handleStop = () => {
     manualStopRef.current = true;
@@ -99,8 +96,18 @@ export default function CompanionWindow() {
 
   const handleStart = () => {
     manualStopRef.current = false;
-    connect();
+    setRateLimitExpired(false);
+    connect(true);
   };
+
+  const handleLimitExpired = useCallback(() => {
+    setRateLimitExpired(true);
+    setMood('neutral');
+    setStatus('Ready to reconnect');
+    if (AUTO_VOICE && !manualStopRef.current) {
+      setTimeout(() => connect(true), 800);
+    }
+  }, [connect]);
 
   const handleConfirm = async (approved) => {
     if (!pendingConfirm) return;
@@ -109,41 +116,47 @@ export default function CompanionWindow() {
     setMood('neutral');
   };
 
-  const statusLabel = error
-    ? error.slice(0, 120)
-    : connecting
-      ? 'Connecting voice…'
-      : connected
-        ? (isSpeaking ? 'Speaking…' : isListening ? 'Listening' : status)
-        : status;
+  const faceMood = isRateLimited
+    ? 'rate-limited'
+    : isSpeaking
+      ? 'speaking'
+      : isListening
+        ? 'listening'
+        : mood;
 
   return (
-    <div className="companion-window">
+    <div className={`companion-window${isRateLimited ? ' rate-limited' : ''}`}>
       <div className="companion-header">
         <span className="companion-title">Jarvis</span>
-        <span className={`status-dot ${connected ? 'live' : connecting ? 'connecting' : ''}`} />
+        <span className={`status-dot ${connected ? 'live' : isRateLimited ? 'limited' : connecting ? 'connecting' : ''}`} />
       </div>
 
       <CompanionFace
-        mood={isSpeaking ? 'speaking' : isListening ? 'listening' : mood}
-        audioLevel={audioLevel}
-        speechPulse={speechPulse}
+        mood={faceMood}
+        audioLevel={isRateLimited ? 0 : audioLevel}
+        speechPulse={isRateLimited ? 0 : speechPulse}
         isSpeaking={isSpeaking}
       />
 
-      <p className="status-text">{statusLabel}</p>
+      {isRateLimited ? (
+        <RateLimitPanel retryAt={retryAt} code={errorInfo?.code || 'rate_limit'} onExpired={handleLimitExpired} />
+      ) : (
+        <>
+          <p className="status-text">{connecting ? 'Connecting voice…' : connected ? (isSpeaking ? 'Speaking…' : 'Listening') : status}</p>
 
-      <div className="companion-controls">
-        {connected ? (
-          <button className="btn" onClick={handleStop}>Stop voice</button>
-        ) : (
-          <button className="btn primary" onClick={handleStart} disabled={connecting}>
-            {connecting ? 'Connecting…' : 'Start voice'}
-          </button>
-        )}
-      </div>
+          <div className="companion-controls">
+            {connected ? (
+              <button className="btn" onClick={handleStop}>Stop voice</button>
+            ) : (
+              <button className="btn primary" onClick={handleStart} disabled={connecting}>
+                {connecting ? 'Connecting…' : 'Start voice'}
+              </button>
+            )}
+          </div>
+        </>
+      )}
 
-      {pendingConfirm && (
+      {!isRateLimited && pendingConfirm && (
         <div className="confirm-banner">
           <p>{pendingConfirm.message}</p>
           <div className="confirm-actions">
@@ -153,7 +166,7 @@ export default function CompanionWindow() {
         </div>
       )}
 
-      {artifacts.length > 0 && (
+      {artifacts.length > 0 && !isRateLimited && (
         <p className="artifact-hint">{artifacts.length} artifact(s) in panel →</p>
       )}
     </div>

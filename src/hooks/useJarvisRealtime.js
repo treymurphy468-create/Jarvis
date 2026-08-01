@@ -1,10 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
 import { SERVER } from './useEventStream';
+import { parseApiError } from '../utils/parseApiError';
 
 export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, setMood, setStatus }) {
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState(null);
+  const [errorInfo, setErrorInfo] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
 
@@ -13,6 +15,7 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
   const audioRef = useRef(null);
   const animFrameRef = useRef(null);
   const audioStateRef = useRef({ envelope: 0, prevEnvelope: 0, pulse: 0, speaking: false });
+  const lastConnectAtRef = useRef(0);
 
   const stopAudioMonitor = () => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -138,9 +141,18 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
     }
   }, [onToolCall, setAudioLevel, setSpeechPulse, setMood, setStatus]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastConnectAtRef.current < 20000) {
+      setError('Wait ~20s between voice sessions to avoid burning API limits.');
+      setErrorInfo({ friendly: 'Wait before reconnecting', code: 'cooldown', retryable: false });
+      return;
+    }
+    lastConnectAtRef.current = now;
+
     setConnecting(true);
     setError(null);
+    setErrorInfo(null);
     try {
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
@@ -187,9 +199,12 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
 
       await pc.setRemoteDescription({ type: 'answer', sdp: await sdpResponse.text() });
     } catch (err) {
-      setError(err.message || 'Connection failed');
+      const info = parseApiError(err.message || 'Connection failed');
+      setError(info.friendly);
+      setErrorInfo(info);
       setConnecting(false);
       setMood('concerned');
+      setStatus(info.friendly);
     }
   }, [handleServerEvent, setMood, setStatus]);
 
@@ -216,5 +231,5 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
     setStatus(approved ? 'Confirmed' : 'Cancelled');
   }, [setStatus]);
 
-  return { connected, connecting, error, isSpeaking, isListening, connect, disconnect, confirmAction };
+  return { connected, connecting, error, errorInfo, isSpeaking, isListening, connect, disconnect, confirmAction };
 }
