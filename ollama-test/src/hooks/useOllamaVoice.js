@@ -1,10 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
 import { SERVER } from './useEventStream';
 
-const SILENCE_MS = 750;
-const SPEECH_THRESHOLD = 0.012;
-const MIN_RECORD_MS = 500;
-const MAX_RECORD_MS = 12000;
+const SILENCE_MS = 900;
+const SPEECH_THRESHOLD = 0.008;
+const MIN_RECORD_MS = 400;
+const MAX_RECORD_MS = 15000;
+const RECORD_COOLDOWN_MS = 600;
 
 /** Keep TTS short — less to synthesize = faster playback start */
 function trimForSpeech(text, maxLen = 180) {
@@ -42,6 +43,9 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
   const micLevelRef = useRef(0);
   const isSpeakingRef = useRef(false);
   const handleTranscriptRef = useRef(null);
+  const capturingRef = useRef(false);
+  const utteranceStartRef = useRef(0);
+  const lastCycleEndRef = useRef(0);
 
   const clearErrors = () => {
     setError(null);
@@ -157,6 +161,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
   };
 
   const stopRecording = useCallback(() => {
+    capturingRef.current = false;
     const rec = mediaRecorderRef.current;
     if (rec && rec.state !== 'inactive') {
       try { rec.stop(); } catch { /* ignore */ }
@@ -164,10 +169,22 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     mediaRecorderRef.current = null;
   }, []);
 
+  const beginUtteranceCapture = useCallback(() => {
+    if (capturingRef.current || processingRef.current || isSpeakingRef.current) return;
+    if (Date.now() - lastCycleEndRef.current < RECORD_COOLDOWN_MS) return;
+    capturingRef.current = true;
+    utteranceStartRef.current = Date.now();
+    chunksRef.current = [];
+    recordStartRef.current = Date.now();
+    speechDetectedRef.current = true;
+  }, []);
+
   const finishRecording = useCallback(async () => {
-    stopRecording();
+    if (!capturingRef.current) return;
+    capturingRef.current = false;
     speechDetectedRef.current = false;
     silenceStartRef.current = null;
+    lastCycleEndRef.current = Date.now();
 
     const chunks = chunksRef.current;
     chunksRef.current = [];
@@ -214,15 +231,10 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     } finally {
       processingRef.current = false;
     }
-  }, [setMood, setStatus, stopRecording]);
+  }, [setMood, setStatus]);
 
-  const startRecording = useCallback(() => {
-    if (!streamRef.current || mediaRecorderRef.current || processingRef.current) return;
-
-    chunksRef.current = [];
-    speechDetectedRef.current = false;
-    silenceStartRef.current = null;
-    recordStartRef.current = Date.now();
+  const startRecorder = useCallback(() => {
+    if (!streamRef.current || mediaRecorderRef.current) return;
 
     const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
@@ -232,10 +244,9 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     mediaRecorderRef.current = rec;
 
     rec.ondataavailable = (e) => {
-      if (e.data.size > 0) chunksRef.current.push(e.data);
-    };
-    rec.onstop = () => {
-      if (mediaRecorderRef.current === rec) mediaRecorderRef.current = null;
+      if (e.data.size > 0 && capturingRef.current) {
+        chunksRef.current.push(e.data);
+      }
     };
 
     rec.start(250);
@@ -272,11 +283,10 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
 
       if (isSpeech) {
         silenceStartRef.current = null;
-        if (!mediaRecorderRef.current && !processingRef.current) {
-          startRecording();
-          speechDetectedRef.current = true;
+        if (!capturingRef.current && !processingRef.current) {
+          beginUtteranceCapture();
         }
-      } else if (mediaRecorderRef.current && speechDetectedRef.current) {
+      } else if (capturingRef.current && speechDetectedRef.current) {
         if (!silenceStartRef.current) silenceStartRef.current = now;
         const silentFor = now - silenceStartRef.current;
         const recordedFor = now - recordStartRef.current;
@@ -290,7 +300,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     };
 
     tick();
-  }, [finishRecording, setAudioLevel, startRecording]);
+  }, [beginUtteranceCapture, finishRecording, setAudioLevel]);
 
   const handleTranscript = useCallback(async (transcript) => {
     if (!transcript.trim() || !activeRef.current) return;
@@ -322,6 +332,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       setMood('concerned');
       setStatus(err.message);
     } finally {
+      lastCycleEndRef.current = Date.now();
       if (activeRef.current) {
         setStatus('Listening');
         setMood('listening');
@@ -359,7 +370,9 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       if (!data.whisper?.ok) throw new Error('Speech-to-text not ready. Restart the Jarvis server.');
       if (!data.elevenlabs) throw new Error('ElevenLabs not configured in .env');
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       streamRef.current = stream;
 
       const ctx = new AudioContext();
@@ -369,6 +382,8 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       analyser.fftSize = 512;
       source.connect(analyser);
       analyserRef.current = analyser;
+
+      startRecorder();
 
       sessionIdRef.current = `session-${Date.now()}`;
       await fetch(`${SERVER}/api/ollama/reset`, {
@@ -393,10 +408,12 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       setMood('concerned');
       setStatus(err.message);
     }
-  }, [listenLoop, releaseMic, setMood, setStatus]);
+  }, [listenLoop, releaseMic, setMood, setStatus, startRecorder]);
 
   const disconnect = useCallback(() => {
     activeRef.current = false;
+    capturingRef.current = false;
+    processingRef.current = false;
     stopAudioMonitor();
     releaseMic();
     playbackCtxRef.current?.close().catch(() => {});
