@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { SERVER } from './useEventStream';
 
 const SILENCE_MS = 1200;
-const SPEECH_THRESHOLD = 0.018;
+const SPEECH_THRESHOLD = 0.012;
 const MIN_RECORD_MS = 400;
 const MAX_RECORD_MS = 15000;
 
@@ -31,6 +31,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
   const listenLoopRef = useRef(null);
   const playbackCtxRef = useRef(null);
   const micLevelRef = useRef(0);
+  const isSpeakingRef = useRef(false);
 
   const clearErrors = () => {
     setError(null);
@@ -178,9 +179,12 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       if (text && activeRef.current) {
         await handleTranscriptRef.current?.(text);
       } else if (activeRef.current) {
-        setStatus('Listening');
+        setStatus("Didn't catch that — try again");
         setMood('listening');
         setIsListening(true);
+        setTimeout(() => {
+          if (activeRef.current && !processingRef.current) setStatus('Listening');
+        }, 2000);
       }
     } catch (err) {
       if (activeRef.current) {

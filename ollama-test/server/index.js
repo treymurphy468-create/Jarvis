@@ -108,4 +108,8 @@ server.listen(PORT, async () => {
   if (!elevenLabsConfigured()) {
     console.warn('⚠ ElevenLabs not configured — add ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID to .env');
   }
+  checkWhisper().then((w) => {
+    if (w.ok) console.log(`STT ready: ${w.model}`);
+    else console.warn('⚠ STT not ready:', w.error);
+  });
 });

@@ -1,4 +1,4 @@
-import { pipeline } from '@xenova/transformers';
+import { pipeline, env } from '@xenova/transformers';
 import { writeFileSync, unlinkSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -6,7 +6,10 @@ import { randomUUID } from 'crypto';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
 
-const STT_MODEL = process.env.STT_MODEL || 'Xenova/whisper-tiny.en';
+const STT_MODEL = process.env.STT_MODEL || 'Xenova/whisper-base.en';
+
+env.useBrowserCache = false;
+env.allowLocalModels = true;
 
 if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 
@@ -59,36 +62,44 @@ function loadWavAsFloat32(wavPath) {
 }
 
 export async function checkWhisper() {
-  return {
-    ok: sttReady || Boolean(transcriberPromise),
-    engine: 'transformers',
-    model: STT_MODEL,
-    ready: sttReady,
-  };
+  try {
+    await getTranscriber();
+    return { ok: true, engine: 'transformers', model: STT_MODEL, ready: true };
+  } catch (err) {
+    return { ok: false, engine: 'transformers', model: STT_MODEL, ready: false, error: err.message };
+  }
 }
 
 getTranscriber().catch((err) => console.warn('STT model preload failed:', err.message));
 
 export async function transcribeAudio(buffer, mimeType = 'audio/webm') {
-  const ext = mimeType.includes('wav') ? 'wav' : 'webm';
+  const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('ogg') ? 'ogg' : 'webm';
   const inputPath = join(tmpdir(), `jarvis-stt-in-${randomUUID()}.${ext}`);
   const wavPath = join(tmpdir(), `jarvis-stt-out-${randomUUID()}.wav`);
 
   try {
     writeFileSync(inputPath, buffer);
-    const audioPath = ext === 'wav' ? inputPath : wavPath;
-    if (ext !== 'wav') await convertToWav(inputPath, wavPath);
+    // Always normalize to 16kHz mono — required by Whisper
+    await convertToWav(inputPath, wavPath);
 
-    const audio = loadWavAsFloat32(audioPath);
+    const audio = loadWavAsFloat32(wavPath);
+    if (audio.length < 1600) {
+      console.log('STT: audio too short', audio.length, 'samples');
+      return '';
+    }
+
     const transcriber = await getTranscriber();
-    const result = await transcriber(audio, { language: 'english', task: 'transcribe' });
+    const result = await transcriber(audio, {
+      language: 'english',
+      task: 'transcribe',
+      chunk_length_s: 30,
+      stride_length_s: 5,
+    });
     const text = (result.text || '').trim();
     console.log('STT:', text || '(empty)');
     return text;
   } finally {
     try { unlinkSync(inputPath); } catch { /* ignore */ }
-    if (inputPath !== wavPath) {
-      try { unlinkSync(wavPath); } catch { /* ignore */ }
-    }
+    try { unlinkSync(wavPath); } catch { /* ignore */ }
   }
 }
