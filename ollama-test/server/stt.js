@@ -1,69 +1,70 @@
+import { pipeline, read_audio } from '@xenova/transformers';
 import { writeFileSync, unlinkSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const WHISPER_MODEL = process.env.OLLAMA_WHISPER_MODEL || 'dimavz/whisper-tiny:latest';
+const STT_MODEL = process.env.STT_MODEL || 'Xenova/whisper-tiny.en';
 
-function modelBase(name) {
-  return (name || '').split(':')[0];
+if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
+
+let transcriberPromise = null;
+let sttReady = false;
+
+function getTranscriber() {
+  if (!transcriberPromise) {
+    transcriberPromise = pipeline('automatic-speech-recognition', STT_MODEL)
+      .then((t) => {
+        sttReady = true;
+        return t;
+      });
+  }
+  return transcriberPromise;
 }
 
-function modelMatches(installed, wanted) {
-  if (!installed || !wanted) return false;
-  if (installed === wanted) return true;
-  return modelBase(installed) === modelBase(wanted);
-}
-
-function resolveModelName(installedModels, wanted) {
-  const exact = installedModels.find((m) => m === wanted);
-  if (exact) return exact;
-  const base = modelBase(wanted);
-  return installedModels.find((m) => modelBase(m) === base) || wanted;
+function convertToWav(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .audioChannels(1)
+      .audioFrequency(16000)
+      .format('wav')
+      .on('end', () => resolve(outputPath))
+      .on('error', reject)
+      .save(outputPath);
+  });
 }
 
 export async function checkWhisper() {
-  try {
-    const res = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) return { ok: false, model: WHISPER_MODEL };
-    const data = await res.json();
-    const models = (data.models || []).map((m) => m.name);
-    const resolved = resolveModelName(models, WHISPER_MODEL);
-    const ready = models.some((m) => modelMatches(m, WHISPER_MODEL));
-    return { ok: ready, model: resolved, configured: WHISPER_MODEL, models };
-  } catch {
-    return { ok: false, model: WHISPER_MODEL };
-  }
+  return {
+    ok: true,
+    engine: 'transformers',
+    model: STT_MODEL,
+    ready: sttReady,
+    note: 'Ollama whisper models cannot transcribe; using local Xenova Whisper',
+  };
 }
+
+// Warm model in background so first utterance is faster
+getTranscriber().catch((err) => console.warn('STT model preload failed:', err.message));
 
 export async function transcribeAudio(buffer, mimeType = 'audio/webm') {
   const ext = mimeType.includes('wav') ? 'wav' : 'webm';
-  const tmpPath = join(tmpdir(), `jarvis-stt-${randomUUID()}.${ext}`);
-
-  const tags = await fetch(`${OLLAMA_URL}/api/tags`).then((r) => r.json()).catch(() => ({ models: [] }));
-  const models = (tags.models || []).map((m) => m.name);
-  const model = resolveModelName(models, WHISPER_MODEL);
+  const inputPath = join(tmpdir(), `jarvis-stt-in-${randomUUID()}.${ext}`);
+  const wavPath = join(tmpdir(), `jarvis-stt-out-${randomUUID()}.wav`);
 
   try {
-    writeFileSync(tmpPath, buffer);
+    writeFileSync(inputPath, buffer);
+    const audioPath = ext === 'wav' ? inputPath : wavPath;
+    if (ext !== 'wav') await convertToWav(inputPath, wavPath);
 
-    const res = await fetch(`${OLLAMA_URL}/api/transcribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, file: tmpPath }),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Whisper transcribe failed (${res.status}): ${err}`);
-    }
-
-    const data = await res.json();
-    return (data.text || '').trim();
+    const audio = await read_audio(audioPath, 16000);
+    const transcriber = await getTranscriber();
+    const result = await transcriber(audio, { language: 'english', task: 'transcribe' });
+    return (result.text || '').trim();
   } finally {
-    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    try { unlinkSync(inputPath); } catch { /* ignore */ }
+    try { unlinkSync(wavPath); } catch { /* ignore */ }
   }
 }

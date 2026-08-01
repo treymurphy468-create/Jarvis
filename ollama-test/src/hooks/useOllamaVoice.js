@@ -321,7 +321,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
 
       if (!data.ollama?.ok) throw new Error('Ollama is not running. Start it with: ollama serve');
       if (!data.ollama?.modelReady) throw new Error(`Model "${data.ollama.model}" not found. Run: ollama pull ${data.ollama.model}`);
-      if (!data.whisper?.ok) throw new Error(`Whisper model not found. Run: ollama pull ${data.whisper?.model || 'dimavz/whisper-tiny'}`);
+      if (!data.whisper?.ok) throw new Error('Speech-to-text not ready. Restart the Jarvis server.');
       if (!data.elevenlabs) throw new Error('ElevenLabs not configured in .env');
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
