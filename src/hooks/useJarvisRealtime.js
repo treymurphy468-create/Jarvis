@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { SERVER } from './useEventStream';
 
-export function useJarvisRealtime({ onToolCall, setAudioLevel, setMood, setStatus }) {
+export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, setMood, setStatus }) {
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState(null);
@@ -11,11 +11,14 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setMood, setStatu
   const pcRef = useRef(null);
   const dcRef = useRef(null);
   const audioRef = useRef(null);
-  const analyserRef = useRef(null);
   const animFrameRef = useRef(null);
+  const audioStateRef = useRef({ envelope: 0, prevEnvelope: 0, pulse: 0, speaking: false });
 
   const stopAudioMonitor = () => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    animFrameRef.current = null;
+    setAudioLevel?.(0);
+    setSpeechPulse?.(0);
   };
 
   const startAudioMonitor = (stream) => {
@@ -23,15 +26,55 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setMood, setStatu
       const ctx = new AudioContext();
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.15;
       source.connect(analyser);
-      analyserRef.current = analyser;
 
-      const data = new Uint8Array(analyser.frequencyBinCount);
+      const timeData = new Uint8Array(analyser.fftSize);
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
+      const state = audioStateRef.current;
+
       const tick = () => {
-        analyser.getByteFrequencyData(data);
-        const avg = data.reduce((a, b) => a + b, 0) / data.length / 255;
-        setAudioLevel(avg);
+        analyser.getByteTimeDomainData(timeData);
+        analyser.getByteFrequencyData(freqData);
+
+        // RMS amplitude — tracks syllable volume
+        let sumSq = 0;
+        for (let i = 0; i < timeData.length; i++) {
+          const v = (timeData[i] - 128) / 128;
+          sumSq += v * v;
+        }
+        const rms = Math.sqrt(sumSq / timeData.length);
+
+        // Voice-band energy — vowels sit ~300–3400 Hz
+        const binHz = ctx.sampleRate / analyser.fftSize;
+        const lo = Math.floor(280 / binHz);
+        const hi = Math.min(Math.floor(3400 / binHz), freqData.length - 1);
+        let voiceSum = 0;
+        for (let i = lo; i <= hi; i++) voiceSum += freqData[i];
+        const voice = voiceSum / ((hi - lo + 1) * 255);
+
+        const raw = Math.min(1, Math.max(rms * 2.8, voice * 1.4));
+
+        // Envelope: fast attack, slower release
+        if (raw > state.envelope) {
+          state.envelope += (raw - state.envelope) * 0.55;
+        } else {
+          state.envelope += (raw - state.envelope) * 0.18;
+        }
+
+        // Syllable peak detection — fires on each vowel/word beat
+        const rise = state.envelope - state.prevEnvelope;
+        if (state.speaking && rise > 0.045 && state.envelope > 0.1) {
+          state.pulse = 1;
+        } else {
+          state.pulse *= 0.78; // quick decay → visible "pop" per syllable
+        }
+        state.prevEnvelope = state.envelope;
+
+        setAudioLevel?.(state.envelope);
+        setSpeechPulse?.(state.pulse);
+
         animFrameRef.current = requestAnimationFrame(tick);
       };
       tick();
@@ -41,11 +84,19 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setMood, setStatu
   const handleServerEvent = useCallback(async (event) => {
     switch (event.type) {
       case 'response.output_audio.delta':
+      case 'response.audio.delta':
+        audioStateRef.current.speaking = true;
         setIsSpeaking(true);
         setMood('speaking');
         break;
       case 'response.done':
+      case 'response.completed':
+        audioStateRef.current.speaking = false;
+        audioStateRef.current.envelope = 0;
+        audioStateRef.current.pulse = 0;
         setIsSpeaking(false);
+        setAudioLevel?.(0);
+        setSpeechPulse?.(0);
         setMood('neutral');
         break;
       case 'input_audio_buffer.speech_started':
@@ -85,7 +136,7 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setMood, setStatu
       default:
         break;
     }
-  }, [onToolCall, setMood, setStatus]);
+  }, [onToolCall, setAudioLevel, setSpeechPulse, setMood, setStatus]);
 
   const connect = useCallback(async () => {
     setConnecting(true);
@@ -94,7 +145,6 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setMood, setStatu
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
 
-      // Remote audio from Jarvis
       const audioEl = document.createElement('audio');
       audioEl.autoplay = true;
       audioRef.current = audioEl;
@@ -103,11 +153,9 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setMood, setStatu
         startAudioMonitor(e.streams[0]);
       };
 
-      // Mic input
       const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
       pc.addTrack(ms.getTracks()[0]);
 
-      // Data channel for events + tool calls
       const dc = pc.createDataChannel('oai-events');
       dcRef.current = dc;
 
@@ -157,7 +205,7 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setMood, setStatu
     setIsListening(false);
     setStatus('Ready');
     setMood('neutral');
-  }, [setMood, setStatus]);
+  }, [setMood, setStatus, setAudioLevel, setSpeechPulse]);
 
   const confirmAction = useCallback(async (action_id, approved) => {
     await fetch(`${SERVER}/api/confirm`, {

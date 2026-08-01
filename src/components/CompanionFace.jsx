@@ -1,84 +1,210 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-const BLINK_MIN = 2500;
-const BLINK_MAX = 6000;
+const RING_COUNT = 24;
 
-export default function CompanionFace({ mood = 'neutral', audioLevel = 0, isSpeaking }) {
-  const leftEyeRef = useRef(null);
-  const rightEyeRef = useRef(null);
-  const mouthRef = useRef(null);
+function RingDots({ cx, cy, r, count, className }) {
+  return (
+    <g className={className}>
+      {Array.from({ length: count }, (_, i) => {
+        const angle = (i / count) * Math.PI * 2;
+        return (
+          <circle
+            key={i}
+            cx={cx + Math.cos(angle) * r}
+            cy={cy + Math.sin(angle) * r}
+            r="2.2"
+          />
+        );
+      })}
+    </g>
+  );
+}
 
-  // Natural blinking
+function RingTicks({ cx, cy, r, count, length, className }) {
+  return (
+    <g className={className}>
+      {Array.from({ length: count }, (_, i) => {
+        const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
+        const x1 = cx + Math.cos(angle) * (r - length);
+        const y1 = cy + Math.sin(angle) * (r - length);
+        const x2 = cx + Math.cos(angle) * r;
+        const y2 = cy + Math.sin(angle) * r;
+        return (
+          <line
+            key={i}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            strokeWidth={i % 3 === 0 ? 2.5 : 1.2}
+            opacity={i % 3 === 0 ? 1 : 0.55}
+          />
+        );
+      })}
+    </g>
+  );
+}
+
+export default function CompanionFace({
+  mood = 'neutral',
+  audioLevel = 0,
+  speechPulse = 0,
+  isSpeaking,
+}) {
+  const hudRef = useRef(null);
+  const svgRef = useRef(null);
+  const [ripples, setRipples] = useState([]);
+  const lastPulseRef = useRef(0);
+  const audioLevelRef = useRef(audioLevel);
+  const speechPulseRef = useRef(speechPulse);
+
+  useEffect(() => { audioLevelRef.current = audioLevel; }, [audioLevel]);
+  useEffect(() => { speechPulseRef.current = speechPulse; }, [speechPulse]);
+
   useEffect(() => {
-    let timeout;
-    const blink = () => {
-      [leftEyeRef, rightEyeRef].forEach((ref) => {
-        if (ref.current) ref.current.classList.add('blink');
-      });
-      setTimeout(() => {
-        [leftEyeRef, rightEyeRef].forEach((ref) => {
-          if (ref.current) ref.current.classList.remove('blink');
-        });
-      }, 150);
-      timeout = setTimeout(blink, BLINK_MIN + Math.random() * (BLINK_MAX - BLINK_MIN));
+    let frame;
+    const tick = () => {
+      const level = audioLevelRef.current;
+      const pulse = speechPulseRef.current;
+      if (hudRef.current) {
+        hudRef.current.style.setProperty('--hud-level', String(level));
+        hudRef.current.style.setProperty('--hud-pulse', String(pulse));
+      }
+      if (svgRef.current) {
+        const scale = 1 + pulse * 0.14 + level * 0.06;
+        const glow = 12 + pulse * 36 + level * 20;
+        svgRef.current.style.transform = `scale(${scale})`;
+        svgRef.current.style.filter =
+          `drop-shadow(0 0 ${glow}px color-mix(in srgb, var(--face-color, #00d4ff) ${60 + pulse * 40}%, transparent))`;
+      }
+      frame = requestAnimationFrame(tick);
     };
-    timeout = setTimeout(blink, 2000);
-    return () => clearTimeout(timeout);
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
   }, []);
 
-  // Speech-synced mouth
+  // Spawn ripple ring on each syllable peak
   useEffect(() => {
-    if (!mouthRef.current) return;
-    const open = isSpeaking ? 0.3 + audioLevel * 0.7 : 0.05;
-    mouthRef.current.style.transform = `scaleY(${open})`;
-  }, [audioLevel, isSpeaking]);
+    if (speechPulse > 0.65 && speechPulse > lastPulseRef.current + 0.2) {
+      const id = Date.now() + Math.random();
+      setRipples((prev) => [...prev.slice(-4), id]);
+      setTimeout(() => {
+        setRipples((prev) => prev.filter((r) => r !== id));
+      }, 600);
+    }
+    lastPulseRef.current = speechPulse;
+  }, [speechPulse]);
 
-  const moodClass = `face mood-${mood}`;
+  const moodClass = `face hud-face mood-${mood}${isSpeaking ? ' speaking' : ''}`;
 
   return (
-    <div className={moodClass}>
-      <svg viewBox="0 0 200 200" className="face-svg">
+    <div ref={hudRef} className={moodClass}>
+      <svg ref={svgRef} viewBox="0 0 200 200" className="face-svg hud-svg">
         <defs>
-          <radialGradient id="faceGlow" cx="50%" cy="40%" r="60%">
-            <stop offset="0%" stopColor="#1a3a5c" />
-            <stop offset="100%" stopColor="#0a1628" />
+          <filter id="hudGlow" x="-80%" y="-80%" width="260%" height="260%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="var(--face-color, #00d4ff)" stopOpacity="1" />
+            <stop offset="50%" stopColor="var(--face-color, #00d4ff)" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="var(--face-color, #00d4ff)" stopOpacity="0" />
           </radialGradient>
         </defs>
-        <circle cx="100" cy="100" r="88" fill="url(#faceGlow)" stroke="#2a5a8a" strokeWidth="2" />
 
-        {/* Eyes */}
-        <ellipse ref={leftEyeRef} className="eye left" cx="70" cy="85" rx="14" ry="18" fill="var(--face-color, #4ecdc4)" />
-        <ellipse ref={rightEyeRef} className="eye right" cx="130" cy="85" rx="14" ry="18" fill="var(--face-color, #4ecdc4)" />
-        <circle cx="70" cy="85" r="6" fill="#0a1628" className="pupil" />
-        <circle cx="130" cy="85" r="6" fill="#0a1628" className="pupil" />
+        {/* Syllable ripples — expand outward on each vowel beat */}
+        {ripples.map((id) => (
+          <circle
+            key={id}
+            cx="100"
+            cy="100"
+            r="30"
+            className="hud-ripple"
+            fill="none"
+            stroke="var(--face-color, #00d4ff)"
+            strokeWidth="2"
+          />
+        ))}
 
-        {/* Mouth */}
-        <ellipse
-          ref={mouthRef}
-          className="mouth"
-          cx="100"
-          cy="130"
-          rx="22"
-          ry="8"
-          fill="var(--face-color, #4ecdc4)"
-          style={{ transformOrigin: '100px 130px', transition: 'transform 0.05s ease' }}
-        />
+        <g className="hud-pulse-group">
+          <g className="hud-ring ring-outer" filter="url(#hudGlow)">
+            {Array.from({ length: RING_COUNT }, (_, i) => {
+              const start = (i / RING_COUNT) * 360;
+              const span = i % 4 === 0 ? 10 : i % 2 === 0 ? 5 : 3;
+              return (
+                <path
+                  key={i}
+                  d={describeArc(100, 100, 88, start, start + span)}
+                  fill="none"
+                  stroke="var(--face-color, #00d4ff)"
+                  strokeWidth={i % 4 === 0 ? 3 : 1.5}
+                  strokeLinecap="round"
+                  opacity={i % 4 === 0 ? 1 : 0.5}
+                />
+              );
+            })}
+          </g>
 
-        {/* Mood indicators */}
+          <RingDots cx={100} cy={100} r={72} count={36} className="hud-ring ring-dots" />
+
+          <circle
+            cx="100"
+            cy="100"
+            r="62"
+            className="hud-ring ring-thin"
+            fill="none"
+            stroke="var(--face-color, #00d4ff)"
+            strokeWidth="1"
+            opacity="0.7"
+          />
+
+          <RingTicks cx={100} cy={100} r={52} count={48} length={8} className="hud-ring ring-ticks" />
+
+          <g className="hud-ring ring-inner">
+            {Array.from({ length: 32 }, (_, i) => {
+              const angle = (i / 32) * Math.PI * 2;
+              return (
+                <line
+                  key={i}
+                  x1={100 + Math.cos(angle) * 38}
+                  y1={100 + Math.sin(angle) * 38}
+                  x2={100 + Math.cos(angle) * 44}
+                  y2={100 + Math.sin(angle) * 44}
+                  stroke="var(--face-color, #00d4ff)"
+                  strokeWidth={i % 4 === 0 ? 2 : 1}
+                  opacity={i % 4 === 0 ? 1 : 0.45}
+                />
+              );
+            })}
+          </g>
+
+          <circle cx="100" cy="100" r="28" fill="url(#coreGlow)" className="hud-core" />
+          <circle cx="100" cy="100" r="8" fill="var(--face-color, #00d4ff)" className="hud-core-dot" />
+        </g>
+
         {mood === 'thinking' && (
-          <g className="thinking-dots">
-            <circle cx="160" cy="40" r="4" fill="#4ecdc4" opacity="0.6">
-              <animate attributeName="opacity" values="0.3;1;0.3" dur="1.2s" repeatCount="indefinite" />
-            </circle>
-            <circle cx="175" cy="50" r="4" fill="#4ecdc4" opacity="0.6">
-              <animate attributeName="opacity" values="0.3;1;0.3" dur="1.2s" begin="0.2s" repeatCount="indefinite" />
-            </circle>
-            <circle cx="190" cy="40" r="4" fill="#4ecdc4" opacity="0.6">
-              <animate attributeName="opacity" values="0.3;1;0.3" dur="1.2s" begin="0.4s" repeatCount="indefinite" />
-            </circle>
+          <g className="hud-scan">
+            <line x1="100" y1="100" x2="100" y2="28" stroke="var(--face-color, #00d4ff)" strokeWidth="1.5" opacity="0.8">
+              <animateTransform attributeName="transform" type="rotate" from="0 100 100" to="360 100 100" dur="1.5s" repeatCount="indefinite" />
+            </line>
           </g>
         )}
       </svg>
     </div>
   );
+}
+
+function describeArc(x, y, r, startAngle, endAngle) {
+  const start = polarToCartesian(x, y, r, endAngle);
+  const end = polarToCartesian(x, y, r, startAngle);
+  const large = endAngle - startAngle <= 180 ? '0' : '1';
+  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${large} 0 ${end.x} ${end.y}`;
+}
+
+function polarToCartesian(cx, cy, r, angleDeg) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }

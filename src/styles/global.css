@@ -5,13 +5,14 @@
 }
 
 :root {
-  --bg: #0a0f18;
-  --surface: #121a28;
-  --border: #1e2d45;
-  --accent: #4ecdc4;
-  --accent-dim: #2a8a84;
-  --text: #e8eef5;
-  --muted: #7a8ba3;
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --border: #0d3340;
+  --accent: #00d4ff;
+  --accent-dim: #0099bb;
+  --face-color: #00d4ff;
+  --text: #e8f4f8;
+  --muted: #5a8a99;
   --danger: #e85d5d;
   --radius: 12px;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -34,7 +35,7 @@ body {
   flex-direction: column;
   align-items: center;
   padding: 16px;
-  background: linear-gradient(160deg, #0a1628 0%, #0d1f35 100%);
+  background: #000000;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   -webkit-app-region: drag;
@@ -84,20 +85,93 @@ body {
 }
 
 .face-svg {
-  width: 180px;
-  height: 180px;
+  width: 200px;
+  height: 200px;
 }
 
-.eye.blink {
-  transform: scaleY(0.1);
-  transform-origin: center;
-  transition: transform 0.08s;
+.hud-face {
+  --hud-pulse: 0;
+  --hud-level: 0;
 }
 
-.mood-speaking .mouth { fill: #6ee7df; }
-.mood-listening .eye { fill: #7ee8e0; }
-.mood-thinking .face-svg { filter: brightness(1.1); }
-.mood-concerned .face-svg { filter: hue-rotate(30deg); }
+.hud-svg {
+  transform-origin: center center;
+  will-change: transform, filter;
+}
+
+.hud-pulse-group {
+  transform-origin: 100px 100px;
+  transform: scale(calc(1 + var(--hud-pulse) * 0.08));
+  transition: transform 0.035s ease-out;
+}
+
+.hud-ripple {
+  transform-origin: 100px 100px;
+  animation: hud-ripple 0.55s ease-out forwards;
+  opacity: 0.85;
+}
+
+@keyframes hud-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.9;
+    stroke-width: 3;
+  }
+  100% {
+    transform: scale(2.8);
+    opacity: 0;
+    stroke-width: 0.5;
+  }
+}
+
+.hud-ring {
+  transform-origin: 100px 100px;
+  stroke: var(--face-color, #00d4ff);
+  fill: var(--face-color, #00d4ff);
+}
+
+.ring-outer { animation: hud-spin 24s linear infinite; }
+.ring-dots { animation: hud-spin 18s linear infinite reverse; opacity: 0.85; }
+.ring-thin { animation: hud-spin 30s linear infinite; }
+.ring-ticks { animation: hud-spin 12s linear infinite reverse; }
+.ring-inner { animation: hud-spin 8s linear infinite; }
+
+.hud-core {
+  transform-origin: 100px 100px;
+  opacity: calc(0.35 + var(--hud-level) * 0.45 + var(--hud-pulse) * 0.5);
+  transform: scale(calc(1 + var(--hud-pulse) * 0.25 + var(--hud-level) * 0.1));
+  transition: transform 0.03s ease-out, opacity 0.04s ease-out;
+}
+
+.hud-core-dot {
+  filter: drop-shadow(0 0 calc(4px + var(--hud-pulse) * 14px) var(--face-color, #00d4ff));
+  transform-origin: 100px 100px;
+  transform: scale(calc(1 + var(--hud-pulse) * 0.4));
+  transition: transform 0.03s ease-out;
+}
+
+@keyframes hud-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.hud-face.speaking .ring-outer { animation-duration: 14s; }
+.hud-face.speaking .ring-inner { animation-duration: 4s; }
+.hud-face.speaking .ring-ticks { animation-duration: 8s; }
+
+.hud-face.speaking .hud-ring {
+  opacity: calc(0.7 + var(--hud-pulse) * 0.3);
+}
+
+.mood-listening .hud-svg {
+  filter: drop-shadow(0 0 16px color-mix(in srgb, var(--face-color, #00d4ff) 55%, transparent));
+}
+
+.mood-thinking .ring-outer { animation-duration: 10s; }
+.mood-thinking .ring-inner { animation-duration: 3s; }
+
+.mood-concerned .hud-svg { filter: hue-rotate(180deg) drop-shadow(0 0 12px #ff6b6b); }
+.mood-concerned .hud-ring { stroke: #ff6b6b; fill: #ff6b6b; }
 
 .status-text {
   font-size: 12px;

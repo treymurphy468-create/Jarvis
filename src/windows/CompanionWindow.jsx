@@ -7,6 +7,7 @@ export default function CompanionWindow() {
   const [mood, setMood] = useState('neutral');
   const [status, setStatus] = useState('Ready');
   const [audioLevel, setAudioLevel] = useState(0);
+  const [speechPulse, setSpeechPulse] = useState(0);
   const [pendingConfirm, setPendingConfirm] = useState(null);
   const { artifacts, confirmations } = useEventStream();
 
@@ -39,7 +40,7 @@ export default function CompanionWindow() {
     connect,
     disconnect,
     confirmAction,
-  } = useJarvisRealtime({ onToolCall, setAudioLevel, setMood, setStatus });
+  } = useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, setMood, setStatus });
 
   useEffect(() => {
     if (confirmations.length > 0) {
@@ -65,6 +66,7 @@ export default function CompanionWindow() {
       <CompanionFace
         mood={isSpeaking ? 'speaking' : isListening ? 'listening' : mood}
         audioLevel={audioLevel}
+        speechPulse={speechPulse}
         isSpeaking={isSpeaking}
       />
 
