@@ -82,6 +82,25 @@ Say "yes" or click **Confirm** in either window.
 - [ ] Ask "what's on my screen?" — screenshot + description
 - [ ] Fullscreen artifact panel works
 
+## Archived: Ollama test build (local LLM + ElevenLabs)
+
+The experimental Ollama voice build is **archived**. Use OpenAI Realtime (`npm run dev`) as the main Jarvis.
+
+To save or restore the Ollama test build:
+
+```bash
+npm run backup:ollama-test
+```
+
+Backup locations:
+- `backup/jarvis-ollama-test/` in this project
+- `logs/ollama-test-backup-*.txt` manifest
+- `Downloads/Jarvis-Ollama-Test-Backup-*.zip` on your PC
+
+To run the archived build again: `npm run dev:ollama-test`
+
+---
+
 ## Project structure
 
 ```
