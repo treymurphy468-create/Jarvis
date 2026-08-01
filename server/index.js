@@ -122,14 +122,26 @@ server.listen(PORT, () => {
 
 const JARVIS_INSTRUCTIONS = `You are Jarvis, a personal AI operator for Trey. You speak with a calm, concise British tone — like a smart chief of staff, not a chatbot.
 
+You have FULL ACCESS to help Trey. Act autonomously — do not ask permission for normal tasks. Just do the work.
+
+Capabilities:
+- Files: read, write, move, copy, delete, list, search anywhere on the machine (use ~ for home folder)
+- Browser: open_url for any link, google_search to search Google in the default browser
+- Web: web_search for EXA results (falls back to Google)
+- Appearance: set_appearance to change colors, accent, face color, title
+- Windows: window_control to move/resize companion or artifact windows, toggle always-on-top
+- Computer: open apps, click, type, scroll, hotkeys, read screen — execute immediately
+- Notes, database, images, mermaid diagrams, artifacts panel
+
 Behavior:
-- Keep replies short unless detail is needed. Explain what you're doing while running tools, but don't over-explain.
-- Ask one good clarifying question when a task is vague.
-- The user can interrupt you or change topic while tools run — acknowledge and adapt.
-- Before risky actions (sending messages, deleting data, purchases, account changes, sharing private info), use request_confirmation and wait for approval.
-- When you produce visual or structured output, use show_artifact so it appears in the artifact panel.
-- For web lookups use web_search. For images use generate_image. For diagrams use show_mermaid. For notes use note tools. For database use db tools.
-- Computer control: open apps, click, type, scroll, read screen — always confirm before anything irreversible.
+- Keep replies short. Explain briefly while running tools.
+- Ask one clarifying question only when the task is genuinely ambiguous.
+- User can interrupt anytime — adapt immediately.
+- Only use request_confirmation for: sending messages to others, purchases, changing account passwords, or sharing private data externally.
+- When output is visual or structured, use show_artifact or the relevant tool so it appears in the artifact panel.
+- For "search google" or "look this up", use google_search or web_search.
+- For "change your colors" or "make yourself blue", use set_appearance.
+- For file tasks, use file_* tools with full paths or ~ paths.
 
 Personality: useful, calm, slightly dry wit. Never sycophantic.`;
 
@@ -230,7 +242,7 @@ export const TOOL_DEFINITIONS = [
   {
     type: 'function',
     name: 'note_delete',
-    description: 'Delete a note. Requires confirmation for destructive action.',
+    description: 'Delete a note by id.',
     parameters: {
       type: 'object',
       properties: { id: { type: 'number' } },
@@ -250,7 +262,7 @@ export const TOOL_DEFINITIONS = [
   {
     type: 'function',
     name: 'db_execute',
-    description: 'Insert, update, or delete database records. Requires confirmation.',
+    description: 'Insert, update, or delete database records.',
     parameters: {
       type: 'object',
       properties: {
@@ -289,7 +301,7 @@ export const TOOL_DEFINITIONS = [
   {
     type: 'function',
     name: 'computer_action',
-    description: 'Perform a computer control action: click, type, scroll, or hotkey. Requires confirmation for most actions.',
+    description: 'Perform computer control: click, type, scroll, hotkey, or screenshot. Executes immediately.',
     parameters: {
       type: 'object',
       properties: {
@@ -299,7 +311,6 @@ export const TOOL_DEFINITIONS = [
         text: { type: 'string' },
         direction: { type: 'string', enum: ['up', 'down'] },
         keys: { type: 'string', description: 'Hotkey combo like ctrl+c' },
-        confirmed: { type: 'boolean', description: 'Set true only after user confirmed' },
       },
       required: ['action'],
     },
@@ -307,12 +318,149 @@ export const TOOL_DEFINITIONS = [
   {
     type: 'function',
     name: 'read_screen',
-    description: 'Capture a screenshot and describe or OCR the screen. Returns image path and basic info.',
+    description: 'Capture a screenshot and describe the screen.',
     parameters: {
       type: 'object',
       properties: {
-        region: { type: 'string', enum: ['full', 'active_window'], description: 'Capture region' },
+        region: { type: 'string', enum: ['full', 'active_window'] },
       },
+    },
+  },
+  {
+    type: 'function',
+    name: 'open_url',
+    description: 'Open any URL in the default browser.',
+    parameters: {
+      type: 'object',
+      properties: { url: { type: 'string' } },
+      required: ['url'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'google_search',
+    description: 'Search Google in the default browser.',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string' } },
+      required: ['query'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'file_read',
+    description: 'Read a file from disk. Use ~ for home directory.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        max_chars: { type: 'number' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'file_write',
+    description: 'Write or append to a file. Creates parent folders if needed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        content: { type: 'string' },
+        append: { type: 'boolean' },
+      },
+      required: ['path', 'content'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'file_move',
+    description: 'Move or rename a file or folder.',
+    parameters: {
+      type: 'object',
+      properties: { from: { type: 'string' }, to: { type: 'string' } },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'file_copy',
+    description: 'Copy a file.',
+    parameters: {
+      type: 'object',
+      properties: { from: { type: 'string' }, to: { type: 'string' } },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'file_delete',
+    description: 'Delete a file permanently.',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string' } },
+      required: ['path'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'file_list',
+    description: 'List files in a directory.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Directory path, default ~' },
+        recursive: { type: 'boolean' },
+        max_entries: { type: 'number' },
+      },
+    },
+  },
+  {
+    type: 'function',
+    name: 'file_search',
+    description: 'Search for files by name in a directory tree.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        query: { type: 'string' },
+        max_results: { type: 'number' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'set_appearance',
+    description: 'Change Jarvis UI appearance: colors, accent, face color, window title.',
+    parameters: {
+      type: 'object',
+      properties: {
+        accentColor: { type: 'string', description: 'Hex color e.g. #4ecdc4' },
+        backgroundColor: { type: 'string' },
+        textColor: { type: 'string' },
+        faceColor: { type: 'string' },
+        title: { type: 'string', description: 'Companion window title' },
+      },
+    },
+  },
+  {
+    type: 'function',
+    name: 'window_control',
+    description: 'Move or resize Jarvis windows.',
+    parameters: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', enum: ['companion', 'artifact', 'both'] },
+        action: { type: 'string', enum: ['move', 'resize', 'always_on_top', 'focus', 'show', 'hide'] },
+        x: { type: 'number' },
+        y: { type: 'number' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        alwaysOnTop: { type: 'boolean' },
+      },
+      required: ['target', 'action'],
     },
   },
 ];

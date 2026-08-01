@@ -7,6 +7,12 @@ const VITE_URL = 'http://localhost:5173';
 let companionWindow;
 let artifactWindow;
 
+function getWindow(target) {
+  if (target === 'companion') return companionWindow;
+  if (target === 'artifact') return artifactWindow;
+  return null;
+}
+
 function createWindows() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
@@ -42,7 +48,6 @@ function createWindows() {
   if (isDev) {
     companionWindow.loadURL(`${VITE_URL}?window=companion`);
     artifactWindow.loadURL(`${VITE_URL}?window=artifact`);
-    companionWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     companionWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=companion' });
     artifactWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=artifact' });
@@ -62,6 +67,45 @@ ipcMain.handle('get-window-type', (event) => {
   if (event.sender === companionWindow?.webContents) return 'companion';
   if (event.sender === artifactWindow?.webContents) return 'artifact';
   return 'unknown';
+});
+
+ipcMain.handle('set-title', (_event, title) => {
+  if (companionWindow) companionWindow.setTitle(title);
+  return true;
+});
+
+ipcMain.handle('window-control', (_event, cmd) => {
+  const targets = cmd.target === 'both'
+    ? [companionWindow, artifactWindow]
+    : [getWindow(cmd.target)].filter(Boolean);
+
+  for (const win of targets) {
+    if (!win) continue;
+    switch (cmd.action) {
+      case 'move':
+        if (cmd.x != null && cmd.y != null) win.setPosition(Math.round(cmd.x), Math.round(cmd.y));
+        break;
+      case 'resize':
+        if (cmd.width != null && cmd.height != null) win.setSize(Math.round(cmd.width), Math.round(cmd.height));
+        break;
+      case 'always_on_top':
+        win.setAlwaysOnTop(cmd.alwaysOnTop !== false);
+        break;
+      case 'focus':
+        win.show();
+        win.focus();
+        break;
+      case 'show':
+        win.show();
+        break;
+      case 'hide':
+        win.hide();
+        break;
+      default:
+        break;
+    }
+  }
+  return { ok: true, cmd };
 });
 
 app.whenReady().then(createWindows);

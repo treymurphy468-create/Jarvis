@@ -7,9 +7,9 @@ const STORAGE_KEY = 'jarvis_events';
 
 function loadEvents() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"artifacts":[],"confirmations":[]}');
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"artifacts":[],"confirmations":[],"appearance":null,"window":null}');
   } catch {
-    return { artifacts: [], confirmations: [] };
+    return { artifacts: [], confirmations: [], appearance: null, window: null };
   }
 }
 
@@ -21,6 +21,8 @@ function saveEvents(data) {
 export function useEventStream() {
   const [artifacts, setArtifacts] = useState(() => loadEvents().artifacts);
   const [confirmations, setConfirmations] = useState(() => loadEvents().confirmations);
+  const [appearance, setAppearance] = useState(() => loadEvents().appearance);
+  const [windowCmd, setWindowCmd] = useState(() => loadEvents().window);
   const wsRef = useRef(null);
 
   const applyEvent = useCallback((event) => {
@@ -33,6 +35,14 @@ export function useEventStream() {
       current.confirmations.push(event.data);
       saveEvents(current);
       setConfirmations([...current.confirmations]);
+    } else if (event.type === 'appearance') {
+      current.appearance = event.data;
+      saveEvents(current);
+      setAppearance({ ...event.data });
+    } else if (event.type === 'window') {
+      current.window = event.data;
+      saveEvents(current);
+      setWindowCmd({ ...event.data });
     }
   }, []);
 
@@ -60,6 +70,8 @@ export function useEventStream() {
         const data = loadEvents();
         setArtifacts(data.artifacts);
         setConfirmations(data.confirmations);
+        if (data.appearance) setAppearance(data.appearance);
+        if (data.window) setWindowCmd(data.window);
       }
     };
     window.addEventListener('storage', onStorage);
@@ -73,7 +85,7 @@ export function useEventStream() {
     setArtifacts([]);
   }, []);
 
-  return { artifacts, confirmations, clearArtifacts };
+  return { artifacts, confirmations, appearance, windowCmd, clearArtifacts };
 }
 
 export { SERVER };

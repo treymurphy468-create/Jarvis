@@ -47,8 +47,8 @@ export default function CompanionFace({ mood = 'neutral', audioLevel = 0, isSpea
         <circle cx="100" cy="100" r="88" fill="url(#faceGlow)" stroke="#2a5a8a" strokeWidth="2" />
 
         {/* Eyes */}
-        <ellipse ref={leftEyeRef} className="eye left" cx="70" cy="85" rx="14" ry="18" fill="#4ecdc4" />
-        <ellipse ref={rightEyeRef} className="eye right" cx="130" cy="85" rx="14" ry="18" fill="#4ecdc4" />
+        <ellipse ref={leftEyeRef} className="eye left" cx="70" cy="85" rx="14" ry="18" fill="var(--face-color, #4ecdc4)" />
+        <ellipse ref={rightEyeRef} className="eye right" cx="130" cy="85" rx="14" ry="18" fill="var(--face-color, #4ecdc4)" />
         <circle cx="70" cy="85" r="6" fill="#0a1628" className="pupil" />
         <circle cx="130" cy="85" r="6" fill="#0a1628" className="pupil" />
 
@@ -60,7 +60,7 @@ export default function CompanionFace({ mood = 'neutral', audioLevel = 0, isSpea
           cy="130"
           rx="22"
           ry="8"
-          fill="#4ecdc4"
+          fill="var(--face-color, #4ecdc4)"
           style={{ transformOrigin: '100px 130px', transition: 'transform 0.05s ease' }}
         />
 

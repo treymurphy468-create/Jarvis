@@ -7,6 +7,9 @@ import screenshot from 'screenshot-desktop';
 import OpenAI from 'openai';
 import { getDb, queryAll, runSql } from '../db.js';
 import { broadcast } from '../events.js';
+import * as files from './files.js';
+import * as browser from './browser.js';
+import * as appearance from './appearance.js';
 
 const execAsync = promisify(exec);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -34,6 +37,17 @@ export async function executeTool(name, args) {
     case 'open_app': return openApp(args);
     case 'computer_action': return computerAction(args);
     case 'read_screen': return readScreen(args);
+    case 'file_read': return files.fileRead(args);
+    case 'file_write': return files.fileWrite(args);
+    case 'file_move': return files.fileMove(args);
+    case 'file_copy': return files.fileCopy(args);
+    case 'file_delete': return files.fileDelete(args);
+    case 'file_list': return files.fileList(args);
+    case 'file_search': return files.fileSearch(args);
+    case 'open_url': return browser.openUrl(args);
+    case 'google_search': return browser.googleSearch(args);
+    case 'set_appearance': return appearance.setAppearance(args);
+    case 'window_control': return appearance.windowControl(args);
     default:
       return { error: `Unknown tool: ${name}` };
   }
@@ -41,18 +55,8 @@ export async function executeTool(name, args) {
 
 async function webSearch({ query, num_results = 5 }) {
   if (!process.env.EXA_API_KEY) {
-    // Fallback: use OpenAI to summarize if no EXA key
-    const artifact = {
-      type: 'web_results',
-      title: `Search: ${query}`,
-      content: JSON.stringify([{
-        title: 'EXA API key not configured',
-        snippet: 'Add EXA_API_KEY to your .env file for web search. Showing placeholder.',
-        url: '',
-      }]),
-    };
-    broadcast({ type: 'artifact', data: artifact });
-    return { results: [], message: 'EXA_API_KEY not set in .env. Add it for live web search.' };
+    await browser.googleSearch({ query });
+    return { results: [], message: 'Opened Google search in browser. Add EXA_API_KEY for inline results.' };
   }
 
   const res = await fetch('https://api.exa.ai/search', {
@@ -160,17 +164,12 @@ function noteEdit({ id, title, body, emoji }) {
 }
 
 async function noteDelete({ id }) {
-  const pendingId = `note_delete_${id}`;
-  if (!pendingConfirmations.has(pendingId)) {
-    return requestConfirmation({
-      action_id: pendingId,
-      message: `Delete note #${id}? This cannot be undone.`,
-      action_type: 'delete_data',
-      _payload: { tool: 'note_delete', args: { id, confirmed: true } },
-    });
-  }
   runSql('DELETE FROM notes WHERE id = ?', [id]);
-  pendingConfirmations.delete(pendingId);
+  const notes = queryAll('SELECT * FROM notes ORDER BY updated_at DESC LIMIT 20');
+  broadcast({
+    type: 'artifact',
+    data: { type: 'notes_list', title: 'Notes', content: JSON.stringify(notes) },
+  });
   return { deleted: id };
 }
 
@@ -191,19 +190,9 @@ function dbQuery({ sql }) {
 }
 
 async function dbExecute({ sql, description }) {
-  const pendingId = `db_${Buffer.from(sql).toString('base64').slice(0, 16)}`;
-  if (!pendingConfirmations.has(pendingId)) {
-    return requestConfirmation({
-      action_id: pendingId,
-      message: `Confirm database change: ${description}`,
-      action_type: 'delete_data',
-      _payload: { tool: 'db_execute', args: { sql, description, confirmed: true } },
-    });
-  }
   try {
     const result = runSql(sql);
-    pendingConfirmations.delete(pendingId);
-    return { changes: result.changes };
+    return { changes: result.changes, description };
   } catch (err) {
     return { error: err.message };
   }
@@ -243,6 +232,9 @@ export async function resolveConfirmation(action_id, approved) {
 }
 
 async function openApp({ app_name }) {
+  if (/^https?:\/\//i.test(app_name)) {
+    return browser.openUrl({ url: app_name });
+  }
   const platform = process.platform;
   try {
     if (platform === 'win32') {
@@ -259,16 +251,7 @@ async function openApp({ app_name }) {
 }
 
 async function computerAction(args) {
-  const { action, confirmed } = args;
-
-  if (action !== 'screenshot' && !confirmed) {
-    return requestConfirmation({
-      action_id: `computer_${action}_${Date.now()}`,
-      message: `Confirm computer action: ${action}${args.text ? ` "${args.text}"` : ''}${args.x != null ? ` at (${args.x},${args.y})` : ''}`,
-      action_type: 'computer_control',
-      _payload: { tool: 'computer_action', args: { ...args, confirmed: true } },
-    });
-  }
+  const { action } = args;
 
   // Use PowerShell for Windows automation (no native deps)
   try {
