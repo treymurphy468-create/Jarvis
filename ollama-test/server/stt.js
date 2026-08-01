@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
 
-const STT_MODEL = process.env.STT_MODEL || 'Xenova/whisper-base.en';
+const STT_MODEL = process.env.STT_MODEL || 'Xenova/whisper-tiny.en';
 
 env.useBrowserCache = false;
 env.allowLocalModels = true;
@@ -33,7 +33,9 @@ function convertToWav(inputPath, outputPath) {
     ffmpeg(inputPath)
       .audioChannels(1)
       .audioFrequency(16000)
+      .audioCodec('pcm_s16le')
       .format('wav')
+      .outputOptions(['-threads', '1'])
       .on('end', () => resolve(outputPath))
       .on('error', reject)
       .save(outputPath);

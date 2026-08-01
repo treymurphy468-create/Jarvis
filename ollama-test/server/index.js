@@ -10,7 +10,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { registerToolRoutes } from './routes/tools.js';
 import { initDatabase } from './db.js';
 import { addClient, removeClient } from './events.js';
-import { runAgentTurn, checkOllama, clearSession } from './ollama.js';
+import { runAgentTurn, checkOllama, clearSession, warmupVoiceModel } from './ollama.js';
 import { synthesizeSpeech, elevenLabsConfigured } from './elevenlabs.js';
 import { transcribeAudio, checkWhisper } from './stt.js';
 
@@ -104,6 +104,10 @@ server.listen(PORT, async () => {
     console.warn('⚠ Ollama not reachable — start it with: ollama serve');
   } else if (!ollama.modelReady) {
     console.warn(`⚠ Model "${ollama.model}" not found — run: ollama pull ${ollama.model}`);
+  } else if (!ollama.voiceModelReady) {
+    console.warn(`⚠ Voice model "${ollama.voiceModel}" not found — run: ollama pull ${ollama.voiceModel}`);
+  } else {
+    warmupVoiceModel();
   }
   if (!elevenLabsConfigured()) {
     console.warn('⚠ ElevenLabs not configured — add ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID to .env');

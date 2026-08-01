@@ -1,10 +1,19 @@
 import { useCallback, useRef, useState } from 'react';
 import { SERVER } from './useEventStream';
 
-const SILENCE_MS = 900;
+const SILENCE_MS = 650;
 const SPEECH_THRESHOLD = 0.015;
-const MIN_RECORD_MS = 600;
-const MAX_RECORD_MS = 15000;
+const MIN_RECORD_MS = 350;
+const MAX_RECORD_MS = 12000;
+
+/** Keep TTS short — less to synthesize = faster playback start */
+function trimForSpeech(text, maxLen = 180) {
+  const t = (text || '').trim();
+  if (t.length <= maxLen) return t;
+  const cut = t.slice(0, maxLen);
+  const lastStop = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf('!'), cut.lastIndexOf('?'));
+  return (lastStop > 40 ? cut.slice(0, lastStop + 1) : `${cut.trim()}…`).trim();
+}
 
 export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStatus }) {
   const [connected, setConnected] = useState(false);
@@ -296,7 +305,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       }
 
       const data = await res.json();
-      const reply = data.reply?.trim() || 'Right.';
+      const reply = trimForSpeech(data.reply?.trim() || 'Right.');
       setStatus('Speaking…');
       await playTts(reply);
     } catch (err) {
@@ -339,6 +348,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
 
       if (!data.ollama?.ok) throw new Error('Ollama is not running. Start it with: ollama serve');
       if (!data.ollama?.modelReady) throw new Error(`Model "${data.ollama.model}" not found. Run: ollama pull ${data.ollama.model}`);
+      if (!data.ollama?.voiceModelReady) throw new Error(`Voice model "${data.ollama.voiceModel}" not found. Run: ollama pull ${data.ollama.voiceModel}`);
       if (!data.whisper?.ok) throw new Error('Speech-to-text not ready. Restart the Jarvis server.');
       if (!data.elevenlabs) throw new Error('ElevenLabs not configured in .env');
 

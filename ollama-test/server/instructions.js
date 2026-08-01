@@ -68,3 +68,10 @@ export const OLLAMA_TOOLS = RAW_TOOLS.map((t) => ({
     parameters: t.parameters,
   },
 }));
+
+/** Voice action tools — browser, apps, appearance only (not full agent) */
+const VOICE_ACTION_NAMES = new Set([
+  'open_app', 'open_url', 'google_search', 'web_search', 'set_appearance', 'window_control',
+]);
+
+export const VOICE_ACTION_TOOLS = OLLAMA_TOOLS.filter((t) => VOICE_ACTION_NAMES.has(t.function.name));
