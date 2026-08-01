@@ -10,6 +10,7 @@
     "server": "node server/index.js",
     "electron": "electron .",
     "build": "vite build",
+    "desktop-shortcut": "powershell -ExecutionPolicy Bypass -File scripts/create-desktop-shortcut.ps1",
     "start": "concurrently -k \"npm run server\" \"npm run electron:prod\"",
     "electron:prod": "electron ."
   },

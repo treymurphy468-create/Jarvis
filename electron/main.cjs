@@ -7,6 +7,20 @@ const VITE_URL = 'http://localhost:5173';
 let companionWindow;
 let artifactWindow;
 
+// Focus existing instance if user opens Jarvis again from desktop
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (companionWindow) {
+      companionWindow.show();
+      companionWindow.focus();
+    }
+    if (artifactWindow) artifactWindow.show();
+  });
+}
+
 function getWindow(target) {
   if (target === 'companion') return companionWindow;
   if (target === 'artifact') return artifactWindow;
@@ -46,10 +60,10 @@ function createWindows() {
   });
 
   if (isDev) {
-    companionWindow.loadURL(`${VITE_URL}?window=companion`);
+    companionWindow.loadURL(`${VITE_URL}?window=companion&autovoice=1`);
     artifactWindow.loadURL(`${VITE_URL}?window=artifact`);
   } else {
-    companionWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=companion' });
+    companionWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=companion&autovoice=1' });
     artifactWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=artifact' });
   }
 }
