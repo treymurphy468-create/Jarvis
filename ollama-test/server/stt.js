@@ -72,6 +72,25 @@ export async function checkWhisper() {
 
 getTranscriber().catch((err) => console.warn('STT model preload failed:', err.message));
 
+/** Whisper often hallucinates these on silence or noise */
+const HALLUCINATION_RE = [
+  /subscribe to (the )?channel/i,
+  /thanks? for watching/i,
+  /please subscribe/i,
+  /like and subscribe/i,
+  /for more videos/i,
+  /^\[?(music|applause|silence|blank_audio)\]?\.?$/i,
+];
+
+function isLikelyHallucination(text, sampleCount) {
+  if (!text) return true;
+  if (HALLUCINATION_RE.some((re) => re.test(text))) return true;
+  const durationSec = sampleCount / 16000;
+  if (durationSec < 1.5 && text.length > 35) return true;
+  if (durationSec < 3 && text.length > 70) return true;
+  return false;
+}
+
 export async function transcribeAudio(buffer, mimeType = 'audio/webm') {
   const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('ogg') ? 'ogg' : 'webm';
   const inputPath = join(tmpdir(), `jarvis-stt-in-${randomUUID()}.${ext}`);
@@ -83,19 +102,26 @@ export async function transcribeAudio(buffer, mimeType = 'audio/webm') {
     await convertToWav(inputPath, wavPath);
 
     const audio = loadWavAsFloat32(wavPath);
-    if (audio.length < 1600) {
+    if (audio.length < 3200) {
       console.log('STT: audio too short', audio.length, 'samples');
       return '';
     }
 
     const transcriber = await getTranscriber();
-    const result = await transcriber(audio, {
-      language: 'english',
-      task: 'transcribe',
-      chunk_length_s: 30,
-      stride_length_s: 5,
-    });
+    const durationSec = audio.length / 16000;
+    const opts = { language: 'english', task: 'transcribe' };
+    // Chunking only helps long clips; it slows short voice utterances
+    if (durationSec > 25) {
+      opts.chunk_length_s = 30;
+      opts.stride_length_s = 5;
+    }
+
+    const result = await transcriber(audio, opts);
     const text = (result.text || '').trim();
+    if (isLikelyHallucination(text, audio.length)) {
+      console.log('STT: rejected likely hallucination:', text || '(empty)');
+      return '';
+    }
     console.log('STT:', text || '(empty)');
     return text;
   } finally {

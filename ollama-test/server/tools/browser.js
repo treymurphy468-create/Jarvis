@@ -5,6 +5,9 @@ import { broadcast } from '../events.js';
 const execAsync = promisify(exec);
 
 export async function openUrl({ url }) {
+  if (!url || url === 'undefined') {
+    return { error: 'No URL provided' };
+  }
   const platform = process.platform;
   try {
     if (platform === 'win32') {
@@ -25,6 +28,9 @@ export async function openUrl({ url }) {
 }
 
 export async function googleSearch({ query }) {
+  if (!query || query === 'undefined') {
+    return { error: 'No search query provided' };
+  }
   const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
   const result = await openUrl({ url });
   broadcast({

@@ -45,12 +45,12 @@ app.get('/api/health', async (_req, res) => {
 
 app.post('/api/ollama/chat', async (req, res) => {
   try {
-    const { message, sessionId = 'default' } = req.body;
+    const { message, sessionId = 'default', voice = false } = req.body;
     if (!message?.trim()) {
       return res.status(400).json({ error: 'message required' });
     }
 
-    const result = await runAgentTurn(sessionId, message.trim());
+    const result = await runAgentTurn(sessionId, message.trim(), { voice: Boolean(voice) });
     res.json(result);
   } catch (err) {
     console.error('Ollama chat error:', err);

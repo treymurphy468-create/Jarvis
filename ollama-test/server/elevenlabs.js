@@ -7,7 +7,7 @@ export function elevenLabsConfigured() {
 export async function synthesizeSpeech(text) {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   const voiceId = process.env.ELEVENLABS_VOICE_ID;
-  const modelId = process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2';
+  const modelId = process.env.ELEVENLABS_MODEL || 'eleven_turbo_v2_5';
 
   if (!apiKey || !voiceId) {
     throw new Error('Missing ELEVENLABS_API_KEY or ELEVENLABS_VOICE_ID in .env');

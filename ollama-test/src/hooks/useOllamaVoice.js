@@ -1,9 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
 import { SERVER } from './useEventStream';
 
-const SILENCE_MS = 1200;
-const SPEECH_THRESHOLD = 0.012;
-const MIN_RECORD_MS = 400;
+const SILENCE_MS = 900;
+const SPEECH_THRESHOLD = 0.015;
+const MIN_RECORD_MS = 600;
 const MAX_RECORD_MS = 15000;
 
 export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStatus }) {
@@ -178,6 +178,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     try {
       const text = await transcribeBlob(blob);
       if (text && activeRef.current) {
+        setStatus(`Heard: "${text.length > 60 ? `${text.slice(0, 57)}…` : text}"`);
         await handleTranscriptRef.current?.(text);
       } else if (activeRef.current) {
         setStatus("Didn't catch that — try again");
@@ -286,7 +287,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       const res = await fetch(`${SERVER}/api/ollama/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: transcript, sessionId: sessionIdRef.current }),
+        body: JSON.stringify({ message: transcript, sessionId: sessionIdRef.current, voice: true }),
       });
 
       if (!res.ok) {
@@ -351,6 +352,13 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       analyser.fftSize = 512;
       source.connect(analyser);
       analyserRef.current = analyser;
+
+      sessionIdRef.current = `session-${Date.now()}`;
+      await fetch(`${SERVER}/api/ollama/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sessionIdRef.current }),
+      }).catch(() => {});
 
       activeRef.current = true;
       setConnected(true);
