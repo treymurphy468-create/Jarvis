@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, session } = require('electron');
 const path = require('path');
 
 const isDev = !app.isPackaged;
@@ -122,7 +122,15 @@ ipcMain.handle('window-control', (_event, cmd) => {
   return { ok: true, cmd };
 });
 
-app.whenReady().then(createWindows);
+app.whenReady().then(() => {
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'media' || permission === 'microphone');
+  });
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
+    return permission === 'media' || permission === 'microphone';
+  });
+  createWindows();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
