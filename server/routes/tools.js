@@ -1,5 +1,7 @@
 import { executeTool, resolveConfirmation } from '../tools/handlers.js';
 
+const SERVER_BOOT_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
 export function registerToolRoutes(app) {
   app.post('/api/tools/:name', async (req, res) => {
     try {
@@ -22,6 +24,6 @@ export function registerToolRoutes(app) {
   });
 
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', name: 'jarvis' });
+    res.json({ status: 'ok', name: 'jarvis', bootId: SERVER_BOOT_ID });
   });
 }

@@ -1,12 +1,13 @@
 import { useCallback, useRef, useState } from 'react';
 import { SERVER } from './useEventStream';
-import { parseApiError } from '../utils/parseApiError';
+import { dispatchCreditsUpdate } from './useUsageStats';
+import { parseApiError, clearVoiceLimited, getStoredLimitError } from '../utils/parseApiError';
 
 export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, setMood, setStatus }) {
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState(null);
-  const [errorInfo, setErrorInfo] = useState(null);
+  const [errorInfo, setErrorInfo] = useState(() => getStoredLimitError());
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
 
@@ -19,6 +20,30 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
   const handledCallIdsRef = useRef(new Set());
   const responseCreateTimerRef = useRef(null);
   const toolOutputsPendingRef = useRef(0);
+  const connectingRef = useRef(false);
+
+  const tearDownConnection = useCallback(() => {
+    stopAudioMonitor();
+    dcRef.current?.close();
+    pcRef.current?.close();
+    audioRef.current?.pause();
+    pcRef.current = null;
+    dcRef.current = null;
+    setConnected(false);
+    setIsSpeaking(false);
+    setIsListening(false);
+  }, [setAudioLevel, setSpeechPulse]);
+
+  const enterLimitMode = useCallback((info) => {
+    tearDownConnection();
+    fetch(`${SERVER}/api/usage/session-end`, { method: 'POST' }).catch(() => {});
+    connectingRef.current = false;
+    setConnecting(false);
+    setError(info.friendly);
+    setErrorInfo(info);
+    setMood('concerned');
+    setStatus(info.friendly);
+  }, [tearDownConnection, setMood, setStatus]);
 
   const stopAudioMonitor = () => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -104,7 +129,7 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
         setMood('speaking');
         break;
       case 'response.done':
-      case 'response.completed':
+      case 'response.completed': {
         audioStateRef.current.speaking = false;
         audioStateRef.current.envelope = 0;
         audioStateRef.current.pulse = 0;
@@ -112,7 +137,19 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
         setAudioLevel?.(0);
         setSpeechPulse?.(0);
         setMood('neutral');
+        const usage = event.response?.usage;
+        if (usage) {
+          fetch(`${SERVER}/api/usage/track`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ usage }),
+          })
+            .then((r) => r.ok ? r.json() : null)
+            .then((data) => { if (data?.credits) dispatchCreditsUpdate(data.credits); })
+            .catch(() => {});
+        }
         break;
+      }
       case 'input_audio_buffer.speech_started':
         setIsListening(true);
         setMood('listening');
@@ -120,6 +157,20 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
       case 'input_audio_buffer.speech_stopped':
         setIsListening(false);
         break;
+      case 'conversation.item.input_audio_transcription.completed': {
+        const usage = event.usage;
+        if (usage) {
+          fetch(`${SERVER}/api/usage/track`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ usage }),
+          })
+            .then((r) => r.ok ? r.json() : null)
+            .then((data) => { if (data?.credits) dispatchCreditsUpdate(data.credits); })
+            .catch(() => {});
+        }
+        break;
+      }
       case 'response.created':
         toolOutputsPendingRef.current = 0;
         break;
@@ -154,13 +205,21 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
         scheduleResponseCreate();
         break;
       }
+      case 'error': {
+        const info = parseApiError(JSON.stringify({ error: event.error || event }));
+        if (info.code === 'rate_limit' || info.code === 'quota') {
+          enterLimitMode(info);
+        }
+        break;
+      }
       default:
         break;
     }
-  }, [onToolCall, scheduleResponseCreate, setAudioLevel, setSpeechPulse, setMood, setStatus]);
+  }, [onToolCall, scheduleResponseCreate, enterLimitMode, setAudioLevel, setSpeechPulse, setMood, setStatus]);
 
   const connect = useCallback(async (force = false, options = {}) => {
-    const { greet = false } = options;
+    const { greet = false, greetMessage } = options;
+    if (connectingRef.current) return;
     const now = Date.now();
     if (!force && now - lastConnectAtRef.current < 20000) {
       setError('Wait ~20s between voice sessions to avoid burning API limits.');
@@ -176,6 +235,7 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
     }
 
     setConnecting(true);
+    connectingRef.current = true;
     setError(null);
     try {
       const pc = new RTCPeerConnection();
@@ -196,23 +256,30 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
       dcRef.current = dc;
 
       dc.onopen = () => {
+        clearVoiceLimited();
         setConnected(true);
         setConnecting(false);
+        connectingRef.current = false;
         setError(null);
         setErrorInfo(null);
         setStatus('Listening');
         setMood('listening');
-        if (greet) {
+        if (greet && greetMessage) {
           dc.send(JSON.stringify({
             type: 'conversation.item.create',
             item: {
               type: 'message',
               role: 'user',
-              content: [{ type: 'input_text', text: 'Say exactly: "Up and running."' }],
+              content: [{ type: 'input_text', text: `Say exactly: "${greetMessage}"` }],
             },
           }));
           scheduleResponseCreate();
         }
+      };
+
+      dc.onclose = () => {
+        if (connectingRef.current) return;
+        tearDownConnection();
       };
 
       dc.onmessage = (e) => {
@@ -237,27 +304,28 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
       await pc.setRemoteDescription({ type: 'answer', sdp: await sdpResponse.text() });
     } catch (err) {
       const info = parseApiError(err.message || 'Connection failed');
-      setError(info.friendly);
-      setErrorInfo(info);
+      tearDownConnection();
+      connectingRef.current = false;
       setConnecting(false);
-      setMood('concerned');
-      setStatus(info.friendly);
+      if (info.code === 'rate_limit' || info.code === 'quota') {
+        enterLimitMode(info);
+      } else {
+        setError(info.friendly);
+        setErrorInfo(info);
+        setMood('concerned');
+        setStatus(info.friendly);
+      }
     }
-  }, [handleServerEvent, scheduleResponseCreate, setMood, setStatus]);
+  }, [handleServerEvent, scheduleResponseCreate, enterLimitMode, tearDownConnection, setMood, setStatus]);
 
   const disconnect = useCallback(() => {
-    stopAudioMonitor();
-    dcRef.current?.close();
-    pcRef.current?.close();
-    audioRef.current?.pause();
-    pcRef.current = null;
-    dcRef.current = null;
-    setConnected(false);
-    setIsSpeaking(false);
-    setIsListening(false);
-    setStatus('Ready');
+    connectingRef.current = false;
+    setConnecting(false);
+    tearDownConnection();
+    fetch(`${SERVER}/api/usage/session-end`, { method: 'POST' }).catch(() => {});
+    setStatus('Paused');
     setMood('neutral');
-  }, [setMood, setStatus, setAudioLevel, setSpeechPulse]);
+  }, [tearDownConnection, setMood, setStatus]);
 
   const confirmAction = useCallback(async (action_id, approved) => {
     await fetch(`${SERVER}/api/confirm`, {

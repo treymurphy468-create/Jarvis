@@ -164,6 +164,192 @@ body {
   -webkit-app-region: no-drag;
 }
 
+.usage-bars {
+  width: 100%;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 8px 4px;
+  -webkit-app-region: no-drag;
+}
+
+.usage-bar {
+  width: 100%;
+}
+
+.usage-bar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.usage-bar-label {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.usage-bar-credits .usage-bar-label { color: color-mix(in srgb, var(--accent) 80%, var(--muted)); }
+.usage-bar-rpm .usage-bar-label { color: color-mix(in srgb, #a78bfa 80%, var(--muted)); }
+
+.usage-bar-pct {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.usage-bar-rpm .usage-bar-pct { color: #a78bfa; }
+
+.usage-bar-track {
+  position: relative;
+  width: 100%;
+  height: 10px;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  background: rgba(0, 212, 255, 0.04);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.usage-bar-credits .usage-bar-track {
+  margin-bottom: 14px;
+}
+
+.usage-bar-scale {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  display: flex;
+  justify-content: space-between;
+  font-size: 7px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.usage-bar-pct.balance {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.usage-bar-rpm .usage-bar-track {
+  border-color: color-mix(in srgb, #a78bfa 30%, transparent);
+  background: rgba(167, 139, 250, 0.06);
+}
+
+.usage-bar-ticks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.usage-bar-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.usage-bar-rpm .usage-bar-tick {
+  background: color-mix(in srgb, #a78bfa 25%, transparent);
+}
+
+.usage-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 4px;
+  transition: width 0.35s ease, background 0.3s ease;
+}
+
+.usage-bar-fill.ok.credits {
+  background: linear-gradient(to right, var(--accent-dim), var(--accent));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.usage-bar-fill.ok.rpm {
+  background: linear-gradient(to right, #6d28d9, #a78bfa);
+  box-shadow: 0 0 8px rgba(167, 139, 250, 0.45);
+}
+
+.usage-bar-fill.warn.credits {
+  background: linear-gradient(to right, #b8860b, #ffd166);
+}
+
+.usage-bar-fill.warn.rpm {
+  background: linear-gradient(to right, #92400e, #fbbf24);
+}
+
+.usage-bar-fill.critical.credits,
+.usage-bar-fill.limited.credits {
+  background: linear-gradient(to right, #991b1b, #ff3344);
+  box-shadow: 0 0 10px rgba(255, 51, 68, 0.5);
+}
+
+.usage-bar-fill.critical.rpm,
+.usage-bar-fill.limited.rpm {
+  background: linear-gradient(to right, #991b1b, #ff3344);
+  box-shadow: 0 0 10px rgba(255, 51, 68, 0.5);
+}
+
+.usage-bar-fill.unknown {
+  background: linear-gradient(to right, #1a3a44, var(--muted));
+  opacity: 0.6;
+}
+
+.usage-bar-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+
+.usage-bar-billing-link {
+  text-decoration: none;
+  margin-left: auto;
+}
+
+.usage-bar-billing-link:hover {
+  color: #7eeaff;
+}
+
+.usage-bar-detail {
+  font-size: 8px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-bar-reset {
+  font-size: 7px;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--accent) 65%, var(--muted));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usage-bar-rpm .usage-bar-reset {
+  color: color-mix(in srgb, #a78bfa 70%, var(--muted));
+}
+
+.usage-bar.limited .usage-bar-label,
+.usage-bar.limited .usage-bar-pct {
+  color: #ff6b6b;
+}
+
+.companion-window.rate-limited .usage-bar-fill.limited {
+  background: linear-gradient(to right, #991b1b, #ff3344);
+}
+
+
 .face-svg {
   width: 200px;
   height: 200px;

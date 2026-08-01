@@ -60,10 +60,10 @@ function createWindows() {
   });
 
   if (isDev) {
-    companionWindow.loadURL(`${VITE_URL}?window=companion&autovoice=1`);
+    companionWindow.loadURL(`${VITE_URL}?window=companion&autovoice=0`);
     artifactWindow.loadURL(`${VITE_URL}?window=artifact`);
   } else {
-    companionWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=companion&autovoice=1' });
+    companionWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=companion&autovoice=0' });
     artifactWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=artifact' });
   }
 }

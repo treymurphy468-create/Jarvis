@@ -1,21 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import CompanionFace from '../components/CompanionFace';
 import RateLimitPanel from '../components/RateLimitPanel';
+import UsageBars from '../components/UsageBars';
 import { useEventStream, SERVER } from '../hooks/useEventStream';
 import { useJarvisRealtime } from '../hooks/useJarvisRealtime';
-
-const AUTO_VOICE = new URLSearchParams(window.location.search).get('autovoice') !== '0';
-let globalAutoVoiceStarted = false;
+import { useUsageStats } from '../hooks/useUsageStats';
+import {
+  getLastBootId,
+  markBootSeen,
+  pickWittyGreeting,
+  shouldPlayGreeting,
+} from '../utils/voiceGreeting';
 
 export default function CompanionWindow() {
   const [mood, setMood] = useState('neutral');
-  const [status, setStatus] = useState(AUTO_VOICE ? 'Starting voice…' : 'Ready');
+  const [status, setStatus] = useState('Paused');
   const [audioLevel, setAudioLevel] = useState(0);
   const [speechPulse, setSpeechPulse] = useState(0);
   const [pendingConfirm, setPendingConfirm] = useState(null);
   const { artifacts, confirmations } = useEventStream();
   const manualStopRef = useRef(false);
-  const autoStartedRef = useRef(false);
+  const hasVoiceStartedRef = useRef(false);
+  const bootIdRef = useRef(null);
 
   const onToolCall = useCallback(async (name, args) => {
     setMood('thinking');
@@ -48,45 +54,20 @@ export default function CompanionWindow() {
     confirmAction,
   } = useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, setMood, setStatus });
 
+  const usageStats = useUsageStats({ connected });
+
   const isRateLimited =
     !connected &&
     (errorInfo?.code === 'rate_limit' || errorInfo?.code === 'quota');
 
   useEffect(() => {
-    if (!AUTO_VOICE || autoStartedRef.current || globalAutoVoiceStarted || isRateLimited) return;
-    autoStartedRef.current = true;
-    globalAutoVoiceStarted = true;
-    manualStopRef.current = false;
-
-    let cancelled = false;
-    const waitAndConnect = async () => {
-      for (let attempt = 0; attempt < 20 && !cancelled; attempt++) {
-        try {
-          const res = await fetch(`${SERVER}/api/health`);
-          if (res.ok) {
-            if (!manualStopRef.current) connect();
-            return;
-          }
-        } catch { /* server not up yet */ }
-        await new Promise((r) => setTimeout(r, 800));
-      }
-      if (!cancelled) setStatus('Waiting for server…');
-    };
-    waitAndConnect();
-    return () => { cancelled = true; };
-  }, [connect, isRateLimited]);
-
-  useEffect(() => {
-    if (!isRateLimited || !AUTO_VOICE || manualStopRef.current || connecting) return;
-
-    const retry = () => {
-      if (!manualStopRef.current && !connecting) connect(true, { greet: true });
-    };
-
-    const initial = setTimeout(retry, 15000);
-    const id = setInterval(retry, 30000);
-    return () => { clearTimeout(initial); clearInterval(id); };
-  }, [isRateLimited, connecting, connect]);
+    fetch(`${SERVER}/api/health`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.bootId) bootIdRef.current = data.bootId;
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (confirmations.length > 0 && !isRateLimited) {
@@ -95,15 +76,45 @@ export default function CompanionWindow() {
     }
   }, [confirmations, isRateLimited]);
 
+  const startVoice = useCallback(async () => {
+    manualStopRef.current = false;
+
+    try {
+      const res = await fetch(`${SERVER}/api/health`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.bootId) bootIdRef.current = data.bootId;
+      }
+    } catch { /* server not up */ }
+
+    const bootId = bootIdRef.current;
+    const lastBootId = getLastBootId();
+    const isFirstVoiceStart = !hasVoiceStartedRef.current;
+    const recoveringFromRateLimit = errorInfo?.code === 'rate_limit';
+    const greet = shouldPlayGreeting({
+      bootId,
+      lastBootId,
+      isFirstVoiceStart,
+      recoveringFromRateLimit,
+    });
+
+    hasVoiceStartedRef.current = true;
+    markBootSeen(bootId);
+
+    connect(true, {
+      greet,
+      greetMessage: greet ? pickWittyGreeting() : null,
+    });
+  }, [connect, errorInfo?.code]);
+
   const handleStop = () => {
     manualStopRef.current = true;
     disconnect();
-    setStatus('Voice stopped');
+    setStatus('Paused');
   };
 
   const handleStart = () => {
-    manualStopRef.current = false;
-    connect(true, { greet: errorInfo?.code === 'rate_limit' });
+    startVoice();
   };
 
   const handleConfirm = async (approved) => {
@@ -112,6 +123,21 @@ export default function CompanionWindow() {
     setPendingConfirm(null);
     setMood('neutral');
   };
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key !== 'v' && e.key !== 'V') return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      e.preventDefault();
+      if (connected) {
+        handleStop();
+      } else if (!connecting) {
+        startVoice();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [connected, connecting, startVoice]);
 
   const faceMood = isRateLimited
     ? 'rate-limited'
@@ -135,23 +161,36 @@ export default function CompanionWindow() {
         isSpeaking={isSpeaking}
       />
 
-      {isRateLimited ? (
-        <RateLimitPanel code={errorInfo?.code || 'rate_limit'} />
-      ) : (
-        <>
-          <p className="status-text">{connecting ? 'Connecting voice…' : connected ? (isSpeaking ? 'Speaking…' : 'Listening') : status}</p>
+      <UsageBars
+        credits={usageStats?.credits}
+        session={usageStats?.session}
+        creditsLimited={errorInfo?.code === 'quota'}
+        sessionLimited={errorInfo?.code === 'rate_limit'}
+      />
 
-          <div className="companion-controls">
-            {connected ? (
-              <button className="btn" onClick={handleStop}>Stop voice</button>
-            ) : (
-              <button className="btn primary" onClick={handleStart} disabled={connecting}>
-                {connecting ? 'Connecting…' : 'Start voice'}
-              </button>
-            )}
-          </div>
-        </>
+      {isRateLimited && (
+        <RateLimitPanel code={errorInfo?.code || 'rate_limit'} />
       )}
+
+      <p className="status-text">
+        {isRateLimited
+          ? (errorInfo?.code === 'quota' ? 'Billing required' : 'Voice limit — press Start when ready')
+          : connecting
+            ? 'Connecting voice…'
+            : connected
+              ? (isSpeaking ? 'Speaking…' : 'Listening')
+              : status}
+      </p>
+
+      <div className="companion-controls">
+        {connected ? (
+          <button className="btn" onClick={handleStop}>Stop voice</button>
+        ) : (
+          <button className="btn primary" onClick={handleStart} disabled={connecting}>
+            {connecting ? 'Connecting…' : 'Start voice'}
+          </button>
+        )}
+      </div>
 
       {!isRateLimited && pendingConfirm && (
         <div className="confirm-banner">

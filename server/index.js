@@ -14,6 +14,7 @@ if (!existsSync(screenshotDir)) mkdirSync(screenshotDir, { recursive: true });
 import { registerToolRoutes } from './routes/tools.js';
 import { initDatabase } from './db.js';
 import { addClient, removeClient } from './events.js';
+import { updateRateLimits, recordSessionConnect, recordSessionEnd, getUsageSnapshot, getCreditsSnapshot, trackVoiceUsage, setManualCreditBalance, startQuietCreditSync } from './usage.js';
 
 const PORT = process.env.PORT || 3847;
 
@@ -57,6 +58,7 @@ app.post('/api/realtime/session', async (req, res) => {
     if (!response.ok) {
       const err = await response.text();
       console.error('Realtime call failed:', err);
+      updateRateLimits(response.headers);
       const retryAfter = response.headers.get('retry-after');
       const resetReq = response.headers.get('x-ratelimit-reset-requests');
       const resetTokens = response.headers.get('x-ratelimit-reset-tokens');
@@ -66,6 +68,8 @@ app.post('/api/realtime/session', async (req, res) => {
       return res.status(response.status).send(err);
     }
 
+    updateRateLimits(response.headers);
+    recordSessionConnect();
     res.send(await response.text());
   } catch (err) {
     console.error(err);
@@ -112,6 +116,54 @@ app.post('/api/session', async (_req, res) => {
 });
 
 registerToolRoutes(app);
+
+app.get('/api/usage', async (_req, res) => {
+  try {
+    res.json(await getUsageSnapshot());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Usage unavailable' });
+  }
+});
+
+app.get('/api/usage/credits', async (req, res) => {
+  try {
+    const force = req.query.sync === '1';
+    res.json(await getCreditsSnapshot(force));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Credits unavailable' });
+  }
+});
+
+app.post('/api/usage/credits/balance', (req, res) => {
+  try {
+    const balance = Number(req.body?.balance);
+    if (!Number.isFinite(balance) || balance < 0) {
+      return res.status(400).json({ error: 'Invalid balance' });
+    }
+    res.json(setManualCreditBalance(balance));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Balance sync failed' });
+  }
+});
+
+app.post('/api/usage/track', (req, res) => {
+  try {
+    const result = trackVoiceUsage(req.body?.usage);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Track failed' });
+  }
+});
+
+app.post('/api/usage/session-end', (_req, res) => {
+  recordSessionEnd();
+  res.json({ ok: true });
+});
+
 app.use('/screenshots', express.static(screenshotDir));
 
 const server = createServer(app);
@@ -124,6 +176,7 @@ wss.on('connection', (ws) => {
 
 server.listen(PORT, () => {
   console.log(`Jarvis server running on http://localhost:${PORT}`);
+  startQuietCreditSync();
 });
 
 const JARVIS_INSTRUCTIONS = `You are Jarvis, a personal AI operator for Trey. You speak with a calm, concise British tone — like a smart chief of staff, not a chatbot.
