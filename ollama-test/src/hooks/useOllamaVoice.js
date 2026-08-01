@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
 import { SERVER } from './useEventStream';
 
-const SpeechRecognition = typeof window !== 'undefined'
-  ? (window.SpeechRecognition || window.webkitSpeechRecognition)
-  : null;
+const SILENCE_MS = 1200;
+const SPEECH_THRESHOLD = 0.018;
+const MIN_RECORD_MS = 400;
+const MAX_RECORD_MS = 15000;
 
 export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStatus }) {
   const [connected, setConnected] = useState(false);
@@ -13,21 +14,23 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
 
-  const recognitionRef = useRef(null);
+  const streamRef = useRef(null);
   const audioRef = useRef(null);
   const animFrameRef = useRef(null);
   const audioStateRef = useRef({ envelope: 0, prevEnvelope: 0, pulse: 0, speaking: false });
   const processingRef = useRef(false);
   const activeRef = useRef(false);
-  const stoppingRef = useRef(false);
   const sessionIdRef = useRef(`session-${Date.now()}`);
   const audioCtxRef = useRef(null);
-  const audioSourceRef = useRef(null);
-  const restartTimerRef = useRef(null);
-  const restartBackoffRef = useRef(1000);
-  const pausedRef = useRef(false);
+  const analyserRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const recordStartRef = useRef(0);
+  const silenceStartRef = useRef(null);
+  const speechDetectedRef = useRef(false);
+  const listenLoopRef = useRef(null);
+  const isSpeakingRef = useRef(false);
   const handleTranscriptRef = useRef(null);
-  const startRecognitionRef = useRef(() => {});
 
   const clearErrors = () => {
     setError(null);
@@ -43,17 +46,11 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
 
   const startAudioMonitor = (audioEl) => {
     try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AudioContext();
-      }
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
       const ctx = audioCtxRef.current;
       if (ctx.state === 'suspended') ctx.resume();
 
-      if (audioSourceRef.current) {
-        try { audioSourceRef.current.disconnect(); } catch { /* already disconnected */ }
-      }
       const source = ctx.createMediaElementSource(audioEl);
-      audioSourceRef.current = source;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
       analyser.smoothingTimeConstant = 0.15;
@@ -61,46 +58,28 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       analyser.connect(ctx.destination);
 
       const timeData = new Uint8Array(analyser.fftSize);
-      const freqData = new Uint8Array(analyser.frequencyBinCount);
       const state = audioStateRef.current;
 
       const tick = () => {
         analyser.getByteTimeDomainData(timeData);
-        analyser.getByteFrequencyData(freqData);
-
         let sumSq = 0;
         for (let i = 0; i < timeData.length; i++) {
           const v = (timeData[i] - 128) / 128;
           sumSq += v * v;
         }
         const rms = Math.sqrt(sumSq / timeData.length);
+        const raw = Math.min(1, rms * 2.8);
 
-        const binHz = ctx.sampleRate / analyser.fftSize;
-        const lo = Math.floor(280 / binHz);
-        const hi = Math.min(Math.floor(3400 / binHz), freqData.length - 1);
-        let voiceSum = 0;
-        for (let i = lo; i <= hi; i++) voiceSum += freqData[i];
-        const voice = voiceSum / ((hi - lo + 1) * 255);
-
-        const raw = Math.min(1, Math.max(rms * 2.8, voice * 1.4));
-
-        if (raw > state.envelope) {
-          state.envelope += (raw - state.envelope) * 0.55;
-        } else {
-          state.envelope += (raw - state.envelope) * 0.18;
-        }
+        if (raw > state.envelope) state.envelope += (raw - state.envelope) * 0.55;
+        else state.envelope += (raw - state.envelope) * 0.18;
 
         const rise = state.envelope - state.prevEnvelope;
-        if (state.speaking && rise > 0.045 && state.envelope > 0.1) {
-          state.pulse = 1;
-        } else {
-          state.pulse *= 0.78;
-        }
+        if (state.speaking && rise > 0.045 && state.envelope > 0.1) state.pulse = 1;
+        else state.pulse *= 0.78;
         state.prevEnvelope = state.envelope;
 
         setAudioLevel?.(state.envelope);
         setSpeechPulse?.(state.pulse);
-
         animFrameRef.current = requestAnimationFrame(tick);
       };
       tick();
@@ -113,7 +92,6 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
-
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(err.error || 'TTS failed');
@@ -125,126 +103,164 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     return new Promise((resolve, reject) => {
       const audio = new Audio(url);
       audioRef.current = audio;
-
       audio.onplay = () => {
+        isSpeakingRef.current = true;
         audioStateRef.current.speaking = true;
         setIsSpeaking(true);
         setMood('speaking');
         startAudioMonitor(audio);
       };
-
       audio.onended = () => {
+        isSpeakingRef.current = false;
         stopAudioMonitor();
         audioStateRef.current.speaking = false;
-        audioStateRef.current.envelope = 0;
-        audioStateRef.current.pulse = 0;
         setIsSpeaking(false);
-        setAudioLevel?.(0);
-        setSpeechPulse?.(0);
         URL.revokeObjectURL(url);
         resolve();
       };
-
       audio.onerror = () => {
         URL.revokeObjectURL(url);
         reject(new Error('Audio playback failed'));
       };
-
       audio.play().catch(reject);
     });
   }, [setAudioLevel, setMood, setSpeechPulse]);
 
-  const stopRecognition = useCallback(() => {
-    const rec = recognitionRef.current;
-    if (!rec) return;
-    recognitionRef.current = null;
-    stoppingRef.current = true;
-    try { rec.stop(); } catch { /* ignore */ }
-    setTimeout(() => { stoppingRef.current = false; }, 400);
-  }, []);
-
-  const scheduleRecognitionRestart = useCallback(() => {
-    if (!activeRef.current || processingRef.current || pausedRef.current || stoppingRef.current) return;
-    if (recognitionRef.current) return;
-    clearTimeout(restartTimerRef.current);
-    const delay = restartBackoffRef.current;
-    restartBackoffRef.current = Math.min(restartBackoffRef.current * 2, 8000);
-    restartTimerRef.current = setTimeout(() => {
-      if (activeRef.current && !processingRef.current && !pausedRef.current) {
-        startRecognitionRef.current(true);
-      }
-    }, delay);
-  }, []);
-
-  const startRecognition = useCallback((isRestart = false) => {
-    if (!SpeechRecognition || !activeRef.current) return;
-    if (recognitionRef.current) return;
-
-    const rec = new SpeechRecognition();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = 'en-GB';
-
-    rec.onstart = () => {
-      if (!activeRef.current) return;
-      restartBackoffRef.current = 1000;
-      setIsListening(true);
-      setMood('listening');
-      setStatus('Listening');
-    };
-
-    rec.onresult = (event) => {
-      if (!activeRef.current || processingRef.current || pausedRef.current) return;
-
-      let finalText = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          finalText += event.results[i][0].transcript;
-        }
-      }
-      if (finalText.trim()) {
-        handleTranscriptRef.current?.(finalText.trim());
-      }
-    };
-
-    rec.onerror = (event) => {
-      if (stoppingRef.current || !activeRef.current || pausedRef.current) return;
-      if (event.error === 'no-speech' || event.error === 'aborted') return;
-      if (event.error === 'network') {
-        recognitionRef.current = null;
-        scheduleRecognitionRestart();
-        return;
-      }
-      setError(`Mic error: ${event.error}`);
-      setErrorInfo({ friendly: event.error, code: 'mic', retryable: true });
-    };
-
-    rec.onend = () => {
-      if (recognitionRef.current !== rec) return;
-      recognitionRef.current = null;
-      if (activeRef.current && !processingRef.current && !pausedRef.current && !stoppingRef.current) {
-        scheduleRecognitionRestart();
-      }
-    };
-
-    recognitionRef.current = rec;
-    try {
-      rec.start();
-    } catch {
-      recognitionRef.current = null;
-      if (!isRestart) scheduleRecognitionRestart();
+  const transcribeBlob = async (blob) => {
+    const res = await fetch(`${SERVER}/api/stt`, {
+      method: 'POST',
+      headers: { 'Content-Type': blob.type || 'audio/webm' },
+      body: blob,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || 'Transcription failed');
     }
-  }, [scheduleRecognitionRestart, setMood, setStatus]);
+    const data = await res.json();
+    return data.text?.trim() || '';
+  };
 
-  startRecognitionRef.current = startRecognition;
+  const stopRecording = useCallback(() => {
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state !== 'inactive') {
+      try { rec.stop(); } catch { /* ignore */ }
+    }
+    mediaRecorderRef.current = null;
+  }, []);
 
-  const handleTranscript = useCallback(async (transcript) => {
-    if (!transcript.trim() || processingRef.current || !activeRef.current) return;
+  const finishRecording = useCallback(async () => {
+    stopRecording();
+    speechDetectedRef.current = false;
+    silenceStartRef.current = null;
+
+    const chunks = chunksRef.current;
+    chunksRef.current = [];
+
+    if (!chunks.length || !activeRef.current) return;
+
+    const blob = new Blob(chunks, { type: chunks[0].type || 'audio/webm' });
+    if (blob.size < 1000) return;
 
     processingRef.current = true;
-    pausedRef.current = true;
-    stopRecognition();
     setIsListening(false);
+    setMood('thinking');
+    setStatus('Transcribing…');
+
+    try {
+      const text = await transcribeBlob(blob);
+      if (text && activeRef.current) {
+        await handleTranscriptRef.current?.(text);
+      } else if (activeRef.current) {
+        setStatus('Listening');
+        setMood('listening');
+        setIsListening(true);
+      }
+    } catch (err) {
+      if (activeRef.current) {
+        setError(err.message);
+        setErrorInfo({ friendly: err.message, code: 'stt', retryable: true });
+        setMood('concerned');
+        setStatus(err.message);
+      }
+    } finally {
+      processingRef.current = false;
+    }
+  }, [setMood, setStatus, stopRecording]);
+
+  const startRecording = useCallback(() => {
+    if (!streamRef.current || mediaRecorderRef.current || processingRef.current) return;
+
+    chunksRef.current = [];
+    speechDetectedRef.current = false;
+    silenceStartRef.current = null;
+    recordStartRef.current = Date.now();
+
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm';
+
+    const rec = new MediaRecorder(streamRef.current, { mimeType: mime });
+    mediaRecorderRef.current = rec;
+
+    rec.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    rec.onstop = () => {
+      if (mediaRecorderRef.current === rec) mediaRecorderRef.current = null;
+    };
+
+    rec.start(250);
+  }, []);
+
+  const listenLoop = useCallback(() => {
+    if (!activeRef.current || !analyserRef.current) return;
+
+    const analyser = analyserRef.current;
+    const timeData = new Uint8Array(analyser.fftSize);
+
+    const tick = () => {
+      if (!activeRef.current) return;
+      listenLoopRef.current = requestAnimationFrame(tick);
+
+      if (processingRef.current || isSpeakingRef.current) return;
+
+      analyser.getByteTimeDomainData(timeData);
+      let sumSq = 0;
+      for (let i = 0; i < timeData.length; i++) {
+        const v = (timeData[i] - 128) / 128;
+        sumSq += v * v;
+      }
+      const rms = Math.sqrt(sumSq / timeData.length);
+      setAudioLevel?.(Math.min(1, rms * 3));
+
+      const now = Date.now();
+      const isSpeech = rms > SPEECH_THRESHOLD;
+
+      if (isSpeech) {
+        silenceStartRef.current = null;
+        if (!mediaRecorderRef.current && !processingRef.current) {
+          startRecording();
+          speechDetectedRef.current = true;
+        }
+      } else if (mediaRecorderRef.current && speechDetectedRef.current) {
+        if (!silenceStartRef.current) silenceStartRef.current = now;
+        const silentFor = now - silenceStartRef.current;
+        const recordedFor = now - recordStartRef.current;
+
+        if (silentFor >= SILENCE_MS && recordedFor >= MIN_RECORD_MS) {
+          finishRecording();
+        } else if (recordedFor >= MAX_RECORD_MS) {
+          finishRecording();
+        }
+      }
+    };
+
+    tick();
+  }, [finishRecording, setAudioLevel, startRecording]);
+
+  const handleTranscript = useCallback(async (transcript) => {
+    if (!transcript.trim() || !activeRef.current) return;
+
     setMood('thinking');
     setStatus('Thinking…');
     clearErrors();
@@ -253,10 +269,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       const res = await fetch(`${SERVER}/api/ollama/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: transcript,
-          sessionId: sessionIdRef.current,
-        }),
+        body: JSON.stringify({ message: transcript, sessionId: sessionIdRef.current }),
       });
 
       if (!res.ok) {
@@ -275,48 +288,62 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       setMood('concerned');
       setStatus(err.message);
     } finally {
-      processingRef.current = false;
-      pausedRef.current = false;
       if (activeRef.current) {
         setStatus('Listening');
         setMood('listening');
         setIsListening(true);
-        restartBackoffRef.current = 1000;
-        startRecognition();
       }
     }
-  }, [playTts, setMood, setStatus, startRecognition, stopRecognition]);
+  }, [playTts, setMood, setStatus]);
 
   handleTranscriptRef.current = handleTranscript;
+
+  const releaseMic = useCallback(() => {
+    if (listenLoopRef.current) cancelAnimationFrame(listenLoopRef.current);
+    listenLoopRef.current = null;
+    stopRecording();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    analyserRef.current = null;
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+  }, [stopRecording]);
 
   const connect = useCallback(async () => {
     setConnecting(true);
     clearErrors();
 
     try {
-      if (!SpeechRecognition) {
-        throw new Error('Speech recognition not supported in this browser');
-      }
-
       const health = await fetch(`${SERVER}/api/health`);
       const data = await health.json();
 
-      if (!data.ollama?.ok) {
-        throw new Error('Ollama is not running. Start it with: ollama serve');
-      }
-      if (!data.ollama?.modelReady) {
-        throw new Error(`Model "${data.ollama.model}" not found. Run: ollama pull ${data.ollama.model}`);
-      }
-      if (!data.elevenlabs) {
-        throw new Error('ElevenLabs not configured. Add ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID to .env');
-      }
+      if (!data.ollama?.ok) throw new Error('Ollama is not running. Start it with: ollama serve');
+      if (!data.ollama?.modelReady) throw new Error(`Model "${data.ollama.model}" not found. Run: ollama pull ${data.ollama.model}`);
+      if (!data.whisper?.ok) throw new Error(`Whisper model not found. Run: ollama pull ${data.whisper?.model || 'dimavz/whisper-tiny'}`);
+      if (!data.elevenlabs) throw new Error('ElevenLabs not configured in .env');
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const ctx = new AudioContext();
+      audioCtxRef.current = ctx;
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      analyserRef.current = analyser;
 
       activeRef.current = true;
-      restartBackoffRef.current = 1000;
       setConnected(true);
       setConnecting(false);
-      startRecognition();
+      setIsListening(true);
+      setMood('listening');
+      setStatus('Listening');
+      listenLoop();
     } catch (err) {
+      releaseMic();
       activeRef.current = false;
       setError(err.message);
       setErrorInfo({ friendly: err.message, code: 'setup', retryable: true });
@@ -324,25 +351,21 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       setMood('concerned');
       setStatus(err.message);
     }
-  }, [setMood, setStatus, startRecognition]);
+  }, [listenLoop, releaseMic, setMood, setStatus]);
 
   const disconnect = useCallback(() => {
     activeRef.current = false;
-    pausedRef.current = false;
-    stoppingRef.current = true;
-    restartBackoffRef.current = 1000;
-    clearTimeout(restartTimerRef.current);
-    stopRecognition();
     audioRef.current?.pause();
     audioRef.current = null;
     stopAudioMonitor();
+    releaseMic();
     setConnected(false);
     setIsSpeaking(false);
     setIsListening(false);
     clearErrors();
-    setStatus('Ready');
+    setStatus('Voice stopped');
     setMood('neutral');
-  }, [setMood, setStatus, setAudioLevel, setSpeechPulse, stopRecognition]);
+  }, [releaseMic, setMood, setStatus, setAudioLevel, setSpeechPulse]);
 
   const confirmAction = useCallback(async (action_id, approved) => {
     await fetch(`${SERVER}/api/confirm`, {
