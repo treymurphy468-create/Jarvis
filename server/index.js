@@ -57,6 +57,12 @@ app.post('/api/realtime/session', async (req, res) => {
     if (!response.ok) {
       const err = await response.text();
       console.error('Realtime call failed:', err);
+      const retryAfter = response.headers.get('retry-after');
+      const resetReq = response.headers.get('x-ratelimit-reset-requests');
+      const resetTokens = response.headers.get('x-ratelimit-reset-tokens');
+      if (retryAfter) res.setHeader('Retry-After', retryAfter);
+      if (resetReq) res.setHeader('X-RateLimit-Reset-Requests', resetReq);
+      if (resetTokens) res.setHeader('X-RateLimit-Reset-Tokens', resetTokens);
       return res.status(response.status).send(err);
     }
 
@@ -139,7 +145,8 @@ Behavior:
 - User can interrupt anytime — adapt immediately.
 - Only use request_confirmation for: sending messages to others, purchases, changing account passwords, or sharing private data externally.
 - When output is visual or structured, use show_artifact or the relevant tool so it appears in the artifact panel.
-- For "search google" or "look this up", use google_search or web_search.
+- For "search google" or "look this up", use google_search OR web_search — never both, and only one browser tool per request.
+- For opening a specific URL, use open_url only (do not also call google_search).
 - For "change your colors" or "make yourself blue", use set_appearance.
 - For file tasks, use file_* tools with full paths or ~ paths.
 

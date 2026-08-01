@@ -3,9 +3,9 @@ import CompanionFace from '../components/CompanionFace';
 import RateLimitPanel from '../components/RateLimitPanel';
 import { useEventStream, SERVER } from '../hooks/useEventStream';
 import { useJarvisRealtime } from '../hooks/useJarvisRealtime';
-import { getStoredRateLimitUntil } from '../utils/parseApiError';
 
 const AUTO_VOICE = new URLSearchParams(window.location.search).get('autovoice') !== '0';
+let globalAutoVoiceStarted = false;
 
 export default function CompanionWindow() {
   const [mood, setMood] = useState('neutral');
@@ -13,7 +13,6 @@ export default function CompanionWindow() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [speechPulse, setSpeechPulse] = useState(0);
   const [pendingConfirm, setPendingConfirm] = useState(null);
-  const [rateLimitExpired, setRateLimitExpired] = useState(false);
   const { artifacts, confirmations } = useEventStream();
   const manualStopRef = useRef(false);
   const autoStartedRef = useRef(false);
@@ -49,18 +48,14 @@ export default function CompanionWindow() {
     confirmAction,
   } = useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, setMood, setStatus });
 
-  const storedLimit = getStoredRateLimitUntil();
   const isRateLimited =
-    !rateLimitExpired &&
-    (errorInfo?.code === 'rate_limit' ||
-      errorInfo?.code === 'quota' ||
-      (storedLimit && storedLimit > Date.now()));
-
-  const retryAt = errorInfo?.retryAt || storedLimit;
+    !connected &&
+    (errorInfo?.code === 'rate_limit' || errorInfo?.code === 'quota');
 
   useEffect(() => {
-    if (!AUTO_VOICE || autoStartedRef.current || isRateLimited) return;
+    if (!AUTO_VOICE || autoStartedRef.current || globalAutoVoiceStarted || isRateLimited) return;
     autoStartedRef.current = true;
+    globalAutoVoiceStarted = true;
     manualStopRef.current = false;
 
     let cancelled = false;
@@ -82,6 +77,18 @@ export default function CompanionWindow() {
   }, [connect, isRateLimited]);
 
   useEffect(() => {
+    if (!isRateLimited || !AUTO_VOICE || manualStopRef.current || connecting) return;
+
+    const retry = () => {
+      if (!manualStopRef.current && !connecting) connect(true, { greet: true });
+    };
+
+    const initial = setTimeout(retry, 15000);
+    const id = setInterval(retry, 30000);
+    return () => { clearTimeout(initial); clearInterval(id); };
+  }, [isRateLimited, connecting, connect]);
+
+  useEffect(() => {
     if (confirmations.length > 0 && !isRateLimited) {
       setPendingConfirm(confirmations[confirmations.length - 1]);
       setMood('concerned');
@@ -96,18 +103,8 @@ export default function CompanionWindow() {
 
   const handleStart = () => {
     manualStopRef.current = false;
-    setRateLimitExpired(false);
-    connect(true);
+    connect(true, { greet: errorInfo?.code === 'rate_limit' });
   };
-
-  const handleLimitExpired = useCallback(() => {
-    setRateLimitExpired(true);
-    setMood('neutral');
-    setStatus('Ready to reconnect');
-    if (AUTO_VOICE && !manualStopRef.current) {
-      setTimeout(() => connect(true), 800);
-    }
-  }, [connect]);
 
   const handleConfirm = async (approved) => {
     if (!pendingConfirm) return;
@@ -139,7 +136,7 @@ export default function CompanionWindow() {
       />
 
       {isRateLimited ? (
-        <RateLimitPanel retryAt={retryAt} code={errorInfo?.code || 'rate_limit'} onExpired={handleLimitExpired} />
+        <RateLimitPanel code={errorInfo?.code || 'rate_limit'} />
       ) : (
         <>
           <p className="status-text">{connecting ? 'Connecting voice…' : connected ? (isSpeaking ? 'Speaking…' : 'Listening') : status}</p>

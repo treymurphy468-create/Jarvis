@@ -17,6 +17,8 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
   const audioStateRef = useRef({ envelope: 0, prevEnvelope: 0, pulse: 0, speaking: false });
   const lastConnectAtRef = useRef(0);
   const handledCallIdsRef = useRef(new Set());
+  const responseCreateTimerRef = useRef(null);
+  const toolOutputsPendingRef = useRef(0);
 
   const stopAudioMonitor = () => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -85,6 +87,14 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
     } catch { /* optional */ }
   };
 
+  const scheduleResponseCreate = useCallback(() => {
+    if (responseCreateTimerRef.current) clearTimeout(responseCreateTimerRef.current);
+    responseCreateTimerRef.current = setTimeout(() => {
+      responseCreateTimerRef.current = null;
+      dcRef.current?.send(JSON.stringify({ type: 'response.create' }));
+    }, 80);
+  }, []);
+
   const handleServerEvent = useCallback(async (event) => {
     switch (event.type) {
       case 'response.output_audio.delta':
@@ -110,6 +120,14 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
       case 'input_audio_buffer.speech_stopped':
         setIsListening(false);
         break;
+      case 'response.created':
+        toolOutputsPendingRef.current = 0;
+        break;
+      case 'response.output_item.added':
+        if (event.item?.type === 'function_call') {
+          toolOutputsPendingRef.current += 1;
+        }
+        break;
       case 'response.function_call_arguments.done': {
         const callId = event.call_id;
         if (!callId || handledCallIdsRef.current.has(callId)) break;
@@ -133,15 +151,16 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
             output,
           },
         }));
-        dcRef.current?.send(JSON.stringify({ type: 'response.create' }));
+        scheduleResponseCreate();
         break;
       }
       default:
         break;
     }
-  }, [onToolCall, setAudioLevel, setSpeechPulse, setMood, setStatus]);
+  }, [onToolCall, scheduleResponseCreate, setAudioLevel, setSpeechPulse, setMood, setStatus]);
 
-  const connect = useCallback(async (force = false) => {
+  const connect = useCallback(async (force = false, options = {}) => {
+    const { greet = false } = options;
     const now = Date.now();
     if (!force && now - lastConnectAtRef.current < 20000) {
       setError('Wait ~20s between voice sessions to avoid burning API limits.');
@@ -150,10 +169,14 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
     }
     lastConnectAtRef.current = now;
     handledCallIdsRef.current.clear();
+    toolOutputsPendingRef.current = 0;
+    if (responseCreateTimerRef.current) {
+      clearTimeout(responseCreateTimerRef.current);
+      responseCreateTimerRef.current = null;
+    }
 
     setConnecting(true);
     setError(null);
-    setErrorInfo(null);
     try {
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
@@ -175,8 +198,21 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
       dc.onopen = () => {
         setConnected(true);
         setConnecting(false);
+        setError(null);
+        setErrorInfo(null);
         setStatus('Listening');
         setMood('listening');
+        if (greet) {
+          dc.send(JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'Say exactly: "Up and running."' }],
+            },
+          }));
+          scheduleResponseCreate();
+        }
       };
 
       dc.onmessage = (e) => {
@@ -207,7 +243,7 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
       setMood('concerned');
       setStatus(info.friendly);
     }
-  }, [handleServerEvent, setMood, setStatus]);
+  }, [handleServerEvent, scheduleResponseCreate, setMood, setStatus]);
 
   const disconnect = useCallback(() => {
     stopAudioMonitor();

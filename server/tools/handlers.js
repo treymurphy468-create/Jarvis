@@ -55,8 +55,7 @@ export async function executeTool(name, args) {
 
 async function webSearch({ query, num_results = 5 }) {
   if (!process.env.EXA_API_KEY) {
-    await browser.googleSearch({ query });
-    return { results: [], message: 'Opened Google search in browser. Add EXA_API_KEY for inline results.' };
+    return { results: [], message: 'EXA not configured — use google_search to open browser (one tool only).' };
   }
 
   const res = await fetch('https://api.exa.ai/search', {

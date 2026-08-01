@@ -4,7 +4,17 @@ import { broadcast } from '../events.js';
 
 const execAsync = promisify(exec);
 
+let lastBrowserOpen = { url: '', at: 0 };
+
 export async function openUrl({ url }) {
+  if (!url || url === 'undefined') {
+    return { error: 'No URL provided' };
+  }
+  const now = Date.now();
+  if (url === lastBrowserOpen.url && now - lastBrowserOpen.at < 4000) {
+    return { opened: url, deduplicated: true };
+  }
+  lastBrowserOpen = { url, at: now };
   const platform = process.platform;
   try {
     if (platform === 'win32') {
