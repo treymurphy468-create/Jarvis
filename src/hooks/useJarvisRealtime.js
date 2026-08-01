@@ -16,6 +16,7 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
   const animFrameRef = useRef(null);
   const audioStateRef = useRef({ envelope: 0, prevEnvelope: 0, pulse: 0, speaking: false });
   const lastConnectAtRef = useRef(0);
+  const handledCallIdsRef = useRef(new Set());
 
   const stopAudioMonitor = () => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -109,31 +110,30 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
       case 'input_audio_buffer.speech_stopped':
         setIsListening(false);
         break;
-      case 'response.function_call_arguments.done':
-      case 'response.output_item.done': {
-        const item = event.item || event;
-        if (item?.type === 'function_call' || event.name) {
-          const name = item.name || event.name;
-          const callId = item.call_id || event.call_id;
-          let args = {};
-          try {
-            args = JSON.parse(item.arguments || event.arguments || '{}');
-          } catch { /* empty */ }
+      case 'response.function_call_arguments.done': {
+        const callId = event.call_id;
+        if (!callId || handledCallIdsRef.current.has(callId)) break;
+        handledCallIdsRef.current.add(callId);
 
-          setStatus(`Running ${name}…`);
-          setMood('thinking');
-          const output = await onToolCall(name, args);
+        const name = event.name;
+        let args = {};
+        try {
+          args = JSON.parse(event.arguments || '{}');
+        } catch { /* empty */ }
 
-          dcRef.current?.send(JSON.stringify({
-            type: 'conversation.item.create',
-            item: {
-              type: 'function_call_output',
-              call_id: callId,
-              output,
-            },
-          }));
-          dcRef.current?.send(JSON.stringify({ type: 'response.create' }));
-        }
+        setStatus(`Running ${name}…`);
+        setMood('thinking');
+        const output = await onToolCall(name, args);
+
+        dcRef.current?.send(JSON.stringify({
+          type: 'conversation.item.create',
+          item: {
+            type: 'function_call_output',
+            call_id: callId,
+            output,
+          },
+        }));
+        dcRef.current?.send(JSON.stringify({ type: 'response.create' }));
         break;
       }
       default:
@@ -149,6 +149,7 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
       return;
     }
     lastConnectAtRef.current = now;
+    handledCallIdsRef.current.clear();
 
     setConnecting(true);
     setError(null);
