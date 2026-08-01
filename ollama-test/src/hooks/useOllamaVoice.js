@@ -32,6 +32,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
   const playbackCtxRef = useRef(null);
   const micLevelRef = useRef(0);
   const isSpeakingRef = useRef(false);
+  const handleTranscriptRef = useRef(null);
 
   const clearErrors = () => {
     setError(null);
