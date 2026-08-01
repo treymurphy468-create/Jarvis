@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
 
-const STT_MODEL = process.env.STT_MODEL || 'Xenova/whisper-tiny.en';
+const STT_MODEL = process.env.STT_MODEL || 'Xenova/whisper-base.en';
 
 env.useBrowserCache = false;
 env.allowLocalModels = true;
@@ -85,7 +85,7 @@ const HALLUCINATION_RE = [
 ];
 
 function isLikelyHallucination(text, sampleCount) {
-  if (!text) return true;
+  if (!text) return false;
   if (HALLUCINATION_RE.some((re) => re.test(text))) return true;
   const durationSec = sampleCount / 16000;
   if (durationSec < 1.5 && text.length > 35) return true;
@@ -104,7 +104,7 @@ export async function transcribeAudio(buffer, mimeType = 'audio/webm') {
     await convertToWav(inputPath, wavPath);
 
     const audio = loadWavAsFloat32(wavPath);
-    if (audio.length < 3200) {
+    if (audio.length < 2400) {
       console.log('STT: audio too short', audio.length, 'samples');
       return '';
     }
@@ -120,11 +120,15 @@ export async function transcribeAudio(buffer, mimeType = 'audio/webm') {
 
     const result = await transcriber(audio, opts);
     const text = (result.text || '').trim();
-    if (isLikelyHallucination(text, audio.length)) {
-      console.log('STT: rejected likely hallucination:', text || '(empty)');
+    if (!text) {
+      console.log('STT: (no speech detected)');
       return '';
     }
-    console.log('STT:', text || '(empty)');
+    if (isLikelyHallucination(text, audio.length)) {
+      console.log('STT: rejected hallucination:', text);
+      return '';
+    }
+    console.log('STT:', text);
     return text;
   } finally {
     try { unlinkSync(inputPath); } catch { /* ignore */ }

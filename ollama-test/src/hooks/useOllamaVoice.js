@@ -1,9 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
 import { SERVER } from './useEventStream';
 
-const SILENCE_MS = 650;
-const SPEECH_THRESHOLD = 0.015;
-const MIN_RECORD_MS = 350;
+const SILENCE_MS = 750;
+const SPEECH_THRESHOLD = 0.012;
+const MIN_RECORD_MS = 500;
 const MAX_RECORD_MS = 12000;
 
 /** Keep TTS short — less to synthesize = faster playback start */
@@ -175,7 +175,14 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     if (!chunks.length || !activeRef.current) return;
 
     const blob = new Blob(chunks, { type: chunks[0].type || 'audio/webm' });
-    if (blob.size < 1000) return;
+    if (blob.size < 800) {
+      if (activeRef.current) {
+        setStatus("Didn't catch that — speak a bit longer");
+        setMood('listening');
+        setIsListening(true);
+      }
+      return;
+    }
 
     processingRef.current = true;
     setIsListening(false);

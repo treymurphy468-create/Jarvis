@@ -1,5 +1,6 @@
 import { executeTool } from './tools/handlers.js';
 import { JARVIS_INSTRUCTIONS, OLLAMA_TOOLS, VOICE_ACTION_TOOLS } from './instructions.js';
+import { tryLocalMathAnswer, voiceNeedsSmartModel } from './voiceMath.js';
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3.5:9b';
@@ -67,14 +68,16 @@ async function ollamaChat(messages, { tools = null, model = OLLAMA_MODEL, numPre
 }
 
 export async function warmupVoiceModel() {
-  try {
-    await ollamaChat(
-      [{ role: 'user', content: 'hi' }],
-      { model: OLLAMA_VOICE_MODEL, numPredict: 1, temperature: 0 },
-    );
-    console.log(`Voice model warm: ${OLLAMA_VOICE_MODEL}`);
-  } catch (err) {
-    console.warn('Voice model warmup failed:', err.message);
+  for (const model of new Set([OLLAMA_VOICE_MODEL, OLLAMA_MODEL])) {
+    try {
+      await ollamaChat(
+        [{ role: 'user', content: 'hi' }],
+        { model, numPredict: 1, temperature: 0 },
+      );
+      console.log(`Model warm: ${model}`);
+    } catch (err) {
+      console.warn(`Model warmup failed (${model}):`, err.message);
+    }
   }
 }
 
@@ -124,19 +127,27 @@ function validateVoiceToolCall(name, args) {
 }
 
 async function runVoiceChatTurn(userText) {
+  const mathAnswer = tryLocalMathAnswer(userText);
+  if (mathAnswer) {
+    console.log('Voice: local math —', mathAnswer);
+    return { reply: mathAnswer, toolCallsUsed: false, voiceMode: 'math' };
+  }
+
+  const smart = voiceNeedsSmartModel(userText);
+  const model = smart ? OLLAMA_MODEL : OLLAMA_VOICE_MODEL;
   const messages = [
     { role: 'system', content: VOICE_CHAT_SYSTEM },
     { role: 'user', content: userText },
   ];
   const data = await ollamaChat(messages, {
-    model: OLLAMA_VOICE_MODEL,
-    numPredict: VOICE_NUM_PREDICT,
-    temperature: 0.3,
+    model,
+    numPredict: smart ? 100 : VOICE_NUM_PREDICT,
+    temperature: smart ? 0.4 : 0.3,
   });
   const msg = data.message;
   if (!msg) throw new Error('Empty response from Ollama');
   const reply = (msg.content || '').trim() || 'Sorry, I did not catch that.';
-  return { reply, toolCallsUsed: false, voiceMode: 'chat' };
+  return { reply, toolCallsUsed: false, voiceMode: smart ? 'smart' : 'chat' };
 }
 
 async function runVoiceActionTurn(userText) {
@@ -203,7 +214,7 @@ async function runVoiceActionTurn(userText) {
 export async function runAgentTurn(sessionId, userText, { voice = false } = {}) {
   if (voice) {
     const useTools = voiceWantsTools(userText);
-    console.log(`Voice: ${useTools ? 'action' : 'chat'} (${useTools ? OLLAMA_MODEL : OLLAMA_VOICE_MODEL}) — "${userText.slice(0, 60)}"`);
+    console.log(`Voice: ${useTools ? 'action' : 'chat'} — "${userText.slice(0, 60)}"`);
     return useTools ? runVoiceActionTurn(userText) : runVoiceChatTurn(userText);
   }
 
