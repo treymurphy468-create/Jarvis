@@ -29,6 +29,7 @@ async function ollamaChat(messages) {
       messages,
       tools: OLLAMA_TOOLS,
       stream: false,
+      think: false,
     }),
   });
 
@@ -64,12 +65,17 @@ export async function runAgentTurn(sessionId, userText) {
     const msg = data.message;
     if (!msg) throw new Error('Empty response from Ollama');
 
-    messages.push(msg);
+    const stored = {
+      role: msg.role,
+      content: msg.content || '',
+    };
+    if (msg.tool_calls?.length) stored.tool_calls = msg.tool_calls;
+    messages.push(stored);
 
     const toolCalls = msg.tool_calls || [];
     if (toolCalls.length === 0) {
       return {
-        reply: msg.content || '',
+        reply: (msg.content || '').trim(),
         toolCallsUsed: rounds > 1,
         messages: messages.length,
       };
@@ -87,6 +93,7 @@ export async function runAgentTurn(sessionId, userText) {
       messages.push({
         role: 'tool',
         content: JSON.stringify(result),
+        tool_name: name,
       });
     }
   }
