@@ -24,6 +24,8 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
   const audioCtxRef = useRef(null);
   const audioSourceRef = useRef(null);
   const restartTimerRef = useRef(null);
+  const restartBackoffRef = useRef(1000);
+  const pausedRef = useRef(false);
   const handleTranscriptRef = useRef(null);
   const startRecognitionRef = useRef(() => {});
 
@@ -162,32 +164,37 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
   }, []);
 
   const scheduleRecognitionRestart = useCallback(() => {
-    if (!activeRef.current || processingRef.current) return;
+    if (!activeRef.current || processingRef.current || pausedRef.current || stoppingRef.current) return;
+    if (recognitionRef.current) return;
     clearTimeout(restartTimerRef.current);
+    const delay = restartBackoffRef.current;
+    restartBackoffRef.current = Math.min(restartBackoffRef.current * 2, 8000);
     restartTimerRef.current = setTimeout(() => {
-      if (activeRef.current && !processingRef.current) startRecognitionRef.current();
-    }, 300);
+      if (activeRef.current && !processingRef.current && !pausedRef.current) {
+        startRecognitionRef.current(true);
+      }
+    }, delay);
   }, []);
 
-  const startRecognition = useCallback(() => {
+  const startRecognition = useCallback((isRestart = false) => {
     if (!SpeechRecognition || !activeRef.current) return;
-
-    stopRecognition();
+    if (recognitionRef.current) return;
 
     const rec = new SpeechRecognition();
-    rec.continuous = false;
+    rec.continuous = true;
     rec.interimResults = true;
     rec.lang = 'en-GB';
 
     rec.onstart = () => {
       if (!activeRef.current) return;
+      restartBackoffRef.current = 1000;
       setIsListening(true);
       setMood('listening');
       setStatus('Listening');
     };
 
     rec.onresult = (event) => {
-      if (!activeRef.current || processingRef.current) return;
+      if (!activeRef.current || processingRef.current || pausedRef.current) return;
 
       let finalText = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -201,12 +208,10 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     };
 
     rec.onerror = (event) => {
-      if (stoppingRef.current || !activeRef.current) return;
-      if (event.error === 'no-speech' || event.error === 'aborted') {
-        scheduleRecognitionRestart();
-        return;
-      }
+      if (stoppingRef.current || !activeRef.current || pausedRef.current) return;
+      if (event.error === 'no-speech' || event.error === 'aborted') return;
       if (event.error === 'network') {
+        recognitionRef.current = null;
         scheduleRecognitionRestart();
         return;
       }
@@ -217,7 +222,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     rec.onend = () => {
       if (recognitionRef.current !== rec) return;
       recognitionRef.current = null;
-      if (activeRef.current && !processingRef.current) {
+      if (activeRef.current && !processingRef.current && !pausedRef.current && !stoppingRef.current) {
         scheduleRecognitionRestart();
       }
     };
@@ -226,9 +231,10 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     try {
       rec.start();
     } catch {
-      scheduleRecognitionRestart();
+      recognitionRef.current = null;
+      if (!isRestart) scheduleRecognitionRestart();
     }
-  }, [scheduleRecognitionRestart, setMood, setStatus, stopRecognition]);
+  }, [scheduleRecognitionRestart, setMood, setStatus]);
 
   startRecognitionRef.current = startRecognition;
 
@@ -236,6 +242,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
     if (!transcript.trim() || processingRef.current || !activeRef.current) return;
 
     processingRef.current = true;
+    pausedRef.current = true;
     stopRecognition();
     setIsListening(false);
     setMood('thinking');
@@ -269,10 +276,12 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       setStatus(err.message);
     } finally {
       processingRef.current = false;
+      pausedRef.current = false;
       if (activeRef.current) {
         setStatus('Listening');
         setMood('listening');
         setIsListening(true);
+        restartBackoffRef.current = 1000;
         startRecognition();
       }
     }
@@ -303,6 +312,7 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
       }
 
       activeRef.current = true;
+      restartBackoffRef.current = 1000;
       setConnected(true);
       setConnecting(false);
       startRecognition();
@@ -318,7 +328,9 @@ export function useOllamaVoice({ setAudioLevel, setSpeechPulse, setMood, setStat
 
   const disconnect = useCallback(() => {
     activeRef.current = false;
+    pausedRef.current = false;
     stoppingRef.current = true;
+    restartBackoffRef.current = 1000;
     clearTimeout(restartTimerRef.current);
     stopRecognition();
     audioRef.current?.pause();
