@@ -1,15 +1,30 @@
 @echo off
 title Jarvis
-cd /d "%~dp0.."
+setlocal
+
+REM Optional first argument is the project root discovered by Jarvis.vbs
+if not "%~1"=="" (
+  cd /d "%~1"
+) else (
+  cd /d "%~dp0.."
+)
 
 if not exist "logs" mkdir logs
 set LOG=logs\jarvis-boot.log
-echo [%date% %time%] Starting Jarvis > "%LOG%"
+echo [%date% %time%] Starting Jarvis from %CD% > "%LOG%"
 
 where node >nul 2>&1
 if errorlevel 1 (
   echo Node.js is required. Install from https://nodejs.org
   echo [%date% %time%] Node.js missing >> "%LOG%"
+  pause
+  exit /b 1
+)
+
+if not exist "package.json" (
+  echo This folder is not Jarvis(Mark1). Expected package.json in:
+  echo   %CD%
+  echo [%date% %time%] Missing package.json in %CD% >> "%LOG%"
   pause
   exit /b 1
 )
@@ -26,8 +41,18 @@ if not exist "node_modules\" (
 )
 
 if not exist ".env" (
-  echo Missing .env with OPENAI_API_KEY. Copy .env.example to .env and add your key.
+  echo Missing .env with OPENAI_API_KEY.
+  echo Copy .env.example to .env in this folder and add your OpenAI key:
+  echo   %CD%\.env
   echo [%date% %time%] Missing .env >> "%LOG%"
+  pause
+  exit /b 1
+)
+
+findstr /C:"OPENAI_API_KEY=" ".env" >nul
+if errorlevel 1 (
+  echo .env exists but OPENAI_API_KEY is missing. Add it and try again.
+  echo [%date% %time%] OPENAI_API_KEY missing from .env >> "%LOG%"
   pause
   exit /b 1
 )
@@ -35,5 +60,5 @@ if not exist ".env" (
 REM Bind to loopback so a new public Wi-Fi profile cannot firewall-block boot
 set HOST=127.0.0.1
 
-echo [%date% %time%] npm run dev >> "%LOG%"
+echo [%date% %time%] npm run dev (OpenAI Realtime) from %CD% >> "%LOG%"
 start "Jarvis" /min cmd /c "npm run dev >> logs\jarvis-boot.log 2>&1"
