@@ -185,9 +185,7 @@ export default function CompanionWindow() {
       />
 
       <UsageBars
-        credits={usageStats?.credits}
         session={usageStats?.session}
-        creditsLimited={errorInfo?.code === 'quota'}
         sessionLimited={errorInfo?.code === 'rate_limit'}
       />
 
