@@ -174,7 +174,18 @@ export default function CompanionWindow() {
     <div className={`companion-window${isRateLimited ? ' rate-limited' : ''}`}>
       <div className="companion-header">
         <span className="companion-title">Jarvis</span>
-        <span className={`status-dot ${connected ? 'live' : isRateLimited ? 'limited' : connecting ? 'connecting' : ''}`} />
+        <div className="companion-header-right">
+          <span className={`status-dot ${connected ? 'live' : isRateLimited ? 'limited' : connecting ? 'connecting' : ''}`} />
+          <button
+            type="button"
+            className="companion-close"
+            aria-label="Close Jarvis"
+            title="Close Jarvis"
+            onClick={() => window.jarvis?.quit?.()}
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <CompanionFace

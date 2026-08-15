@@ -18,6 +18,15 @@ function isGone(win) {
   return !win || win.isDestroyed();
 }
 
+let quitting = false;
+function quitJarvis() {
+  if (quitting) return;
+  quitting = true;
+  if (!isGone(artifactWindow)) artifactWindow.close();
+  if (!isGone(companionWindow)) companionWindow.close();
+  app.quit();
+}
+
 function loadWithRetry(win, url) {
   let loaded = false;
   const tryLoad = () => {
@@ -121,7 +130,10 @@ function createWindows() {
     },
   });
 
-  companionWindow.on('closed', () => { companionWindow = null; });
+  companionWindow.on('closed', () => {
+    companionWindow = null;
+    if (!quitting) quitJarvis();
+  });
   artifactWindow.on('closed', () => { artifactWindow = null; });
   companionWindow.setTitle('Jarvis');
   artifactWindow.setTitle('Jarvis Artifacts');
@@ -195,6 +207,11 @@ ipcMain.handle('window-control', (_event, cmd) => {
     }
   }
   return { ok: true, cmd };
+});
+
+ipcMain.handle('quit-app', () => {
+  quitJarvis();
+  return true;
 });
 
 if (gotLock) {

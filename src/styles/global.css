@@ -57,6 +57,36 @@ body {
   color: var(--accent);
 }
 
+.companion-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.companion-close {
+  -webkit-app-region: no-drag;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.companion-close:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: rgba(232, 93, 93, 0.12);
+}
+
 .status-dot {
   width: 8px;
   height: 8px;

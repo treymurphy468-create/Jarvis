@@ -5,4 +5,5 @@ contextBridge.exposeInMainWorld('jarvis', {
   getWindowType: () => ipcRenderer.invoke('get-window-type'),
   setTitle: (title) => ipcRenderer.invoke('set-title', title),
   windowControl: (cmd) => ipcRenderer.invoke('window-control', cmd),
+  quit: () => ipcRenderer.invoke('quit-app'),
 });
