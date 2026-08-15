@@ -6,7 +6,10 @@ const STORAGE_KEY = 'jarvis_events';
 
 function loadEvents() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"artifacts":[],"confirmations":[],"appearance":null,"window":null}');
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"artifacts":[],"confirmations":[],"appearance":null,"window":null}');
+    // Never replay window move/hide on boot — that made the companion flicker then vanish.
+    parsed.window = null;
+    return parsed;
   } catch {
     return { artifacts: [], confirmations: [], appearance: null, window: null };
   }
@@ -21,7 +24,7 @@ export function useEventStream() {
   const [artifacts, setArtifacts] = useState(() => loadEvents().artifacts);
   const [confirmations, setConfirmations] = useState(() => loadEvents().confirmations);
   const [appearance, setAppearance] = useState(() => loadEvents().appearance);
-  const [windowCmd, setWindowCmd] = useState(() => loadEvents().window);
+  const [windowCmd, setWindowCmd] = useState(null);
   const wsRef = useRef(null);
 
   const applyEvent = useCallback((event) => {
@@ -39,8 +42,6 @@ export function useEventStream() {
       saveEvents(current);
       setAppearance({ ...event.data });
     } else if (event.type === 'window') {
-      current.window = event.data;
-      saveEvents(current);
       setWindowCmd({ ...event.data });
     }
   }, []);
@@ -83,7 +84,6 @@ export function useEventStream() {
         setArtifacts(data.artifacts);
         setConfirmations(data.confirmations);
         if (data.appearance) setAppearance(data.appearance);
-        if (data.window) setWindowCmd(data.window);
       }
     };
     window.addEventListener('storage', onStorage);
