@@ -1,8 +1,8 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, session } = require('electron');
 const path = require('path');
 
 const isDev = !app.isPackaged;
-const VITE_URL = 'http://localhost:5173';
+const VITE_URL = 'http://127.0.0.1:5173';
 
 let companionWindow;
 let artifactWindow;
@@ -60,10 +60,10 @@ function createWindows() {
   });
 
   if (isDev) {
-    companionWindow.loadURL(`${VITE_URL}?window=companion&autovoice=0`);
+    companionWindow.loadURL(`${VITE_URL}?window=companion&autovoice=1`);
     artifactWindow.loadURL(`${VITE_URL}?window=artifact`);
   } else {
-    companionWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=companion&autovoice=0' });
+    companionWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=companion&autovoice=1' });
     artifactWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=artifact' });
   }
 }
@@ -122,7 +122,15 @@ ipcMain.handle('window-control', (_event, cmd) => {
   return { ok: true, cmd };
 });
 
-app.whenReady().then(createWindows);
+app.whenReady().then(() => {
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'media' || permission === 'microphone');
+  });
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
+    return permission === 'media' || permission === 'microphone';
+  });
+  createWindows();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

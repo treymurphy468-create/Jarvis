@@ -16,7 +16,8 @@ import { initDatabase } from './db.js';
 import { addClient, removeClient } from './events.js';
 import { updateRateLimits, recordSessionConnect, recordSessionEnd, getUsageSnapshot, getCreditsSnapshot, trackVoiceUsage, setManualCreditBalance, startQuietCreditSync } from './usage.js';
 
-const PORT = process.env.PORT || 3847;
+const PORT = Number(process.env.PORT || 3847);
+const HOST = process.env.HOST || '127.0.0.1';
 
 if (!process.env.OPENAI_API_KEY) {
   console.error('Missing OPENAI_API_KEY in .env');
@@ -174,8 +175,8 @@ wss.on('connection', (ws) => {
   ws.on('close', () => removeClient(ws));
 });
 
-server.listen(PORT, () => {
-  console.log(`Jarvis server running on http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`Jarvis server running on http://${HOST}:${PORT}`);
   startQuietCreditSync();
 });
 

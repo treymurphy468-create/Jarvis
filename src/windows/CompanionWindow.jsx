@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import CompanionFace from '../components/CompanionFace';
 import RateLimitPanel from '../components/RateLimitPanel';
 import UsageBars from '../components/UsageBars';
-import { useEventStream, SERVER } from '../hooks/useEventStream';
+import { SERVER } from '../config';
+import { useEventStream } from '../hooks/useEventStream';
 import { useJarvisRealtime } from '../hooks/useJarvisRealtime';
 import { useUsageStats } from '../hooks/useUsageStats';
+import { waitForHealth } from '../utils/waitForHealth';
 import {
   getLastBootId,
   markBootSeen,
@@ -12,15 +14,18 @@ import {
   shouldPlayGreeting,
 } from '../utils/voiceGreeting';
 
+const AUTO_VOICE = new URLSearchParams(window.location.search).get('autovoice') !== '0';
+
 export default function CompanionWindow() {
   const [mood, setMood] = useState('neutral');
-  const [status, setStatus] = useState('Paused');
+  const [status, setStatus] = useState(AUTO_VOICE ? 'Starting voice…' : 'Paused');
   const [audioLevel, setAudioLevel] = useState(0);
   const [speechPulse, setSpeechPulse] = useState(0);
   const [pendingConfirm, setPendingConfirm] = useState(null);
   const { artifacts, confirmations } = useEventStream();
   const manualStopRef = useRef(false);
   const hasVoiceStartedRef = useRef(false);
+  const autoStartedRef = useRef(false);
   const bootIdRef = useRef(null);
 
   const onToolCall = useCallback(async (name, args) => {
@@ -61,12 +66,11 @@ export default function CompanionWindow() {
     (errorInfo?.code === 'rate_limit' || errorInfo?.code === 'quota');
 
   useEffect(() => {
-    fetch(`${SERVER}/api/health`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.bootId) bootIdRef.current = data.bootId;
-      })
-      .catch(() => {});
+    let cancelled = false;
+    waitForHealth(SERVER, { attempts: 8, delayMs: 400 }).then((data) => {
+      if (!cancelled && data?.bootId) bootIdRef.current = data.bootId;
+    });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -78,14 +82,15 @@ export default function CompanionWindow() {
 
   const startVoice = useCallback(async () => {
     manualStopRef.current = false;
+    setStatus('Starting voice…');
 
-    try {
-      const res = await fetch(`${SERVER}/api/health`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.bootId) bootIdRef.current = data.bootId;
-      }
-    } catch { /* server not up */ }
+    const health = await waitForHealth(SERVER, { attempts: 20, delayMs: 500 });
+    if (health?.bootId) bootIdRef.current = health.bootId;
+    if (!health) {
+      setMood('concerned');
+      setStatus('Waiting for server…');
+      return;
+    }
 
     const bootId = bootIdRef.current;
     const lastBootId = getLastBootId();
@@ -105,7 +110,7 @@ export default function CompanionWindow() {
       greet,
       greetMessage: greet ? pickWittyGreeting() : null,
     });
-  }, [connect, errorInfo?.code]);
+  }, [connect, errorInfo?.code, setMood, setStatus]);
 
   const handleStop = () => {
     manualStopRef.current = true;
@@ -123,6 +128,24 @@ export default function CompanionWindow() {
     setPendingConfirm(null);
     setMood('neutral');
   };
+
+  useEffect(() => {
+    if (!AUTO_VOICE || autoStartedRef.current || isRateLimited) return;
+    let cancelled = false;
+    (async () => {
+      const health = await waitForHealth(SERVER, { attempts: 40, delayMs: 500 });
+      if (cancelled || autoStartedRef.current || manualStopRef.current) return;
+      if (health?.bootId) bootIdRef.current = health.bootId;
+      if (!health) {
+        setMood('concerned');
+        setStatus('Waiting for server…');
+        return;
+      }
+      autoStartedRef.current = true;
+      startVoice();
+    })();
+    return () => { cancelled = true; };
+  }, [startVoice, isRateLimited]);
 
   useEffect(() => {
     const onKeyDown = (e) => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { SERVER } from './useEventStream';
+import { SERVER } from '../config';
 
 const CREDITS_SYNC_MS = 60_000;
 const CREDITS_LIVE_MS = 3_000;

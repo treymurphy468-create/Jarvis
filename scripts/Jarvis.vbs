@@ -7,4 +7,5 @@ projectRoot = fso.GetParentFolderName(scriptDir)
 launcher = scriptDir & "\Jarvis.bat"
 
 shell.CurrentDirectory = projectRoot
-shell.Run """" & launcher & """", 0, False
+' 7 = minimized — keep a taskbar console so boot errors are visible after a network move
+shell.Run """" & launcher & """", 7, False

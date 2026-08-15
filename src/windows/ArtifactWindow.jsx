@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import ArtifactPanel from '../components/ArtifactPanel';
+import { SERVER } from '../config';
 import { useEventStream } from '../hooks/useEventStream';
 
 export default function ArtifactWindow() {
@@ -14,7 +15,7 @@ export default function ArtifactWindow() {
   };
 
   const handleConfirm = async (action_id, approved) => {
-    await fetch('http://localhost:3847/api/confirm', {
+    await fetch(`${SERVER}/api/confirm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action_id, approved }),

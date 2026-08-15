@@ -4,5 +4,6 @@ dist/
 .env.local
 *.db
 *.log
+logs/
 .DS_Store
 screenshots/

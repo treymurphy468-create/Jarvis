@@ -5,7 +5,8 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "concurrently -k \"npm run server\" \"npm run vite\" \"wait-on http://localhost:5173 && npm run electron\"",
+    "dev": "concurrently -k \"npm run server\" \"npm run vite\" \"wait-on http-get://127.0.0.1:5173 http-get://127.0.0.1:3847/api/health && npm run electron\"",
+    "test": "node --test src/config.test.js src/utils/*.test.js",
     "dev:ollama-test": "powershell -ExecutionPolicy Bypass -File scripts/run-ollama-test.ps1",
     "backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-realtime.ps1",
     "backup:ollama-test": "powershell -ExecutionPolicy Bypass -File scripts/backup-ollama-test.ps1",
@@ -15,7 +16,7 @@
     "electron": "electron .",
     "build": "vite build",
     "desktop-shortcut": "powershell -ExecutionPolicy Bypass -File scripts/create-desktop-shortcut.ps1",
-    "start": "concurrently -k \"npm run server\" \"npm run electron:prod\"",
+    "start": "concurrently -k \"npm run server\" \"wait-on http-get://127.0.0.1:3847/api/health && npm run electron:prod\"",
     "electron:prod": "electron ."
   },
   "dependencies": {
