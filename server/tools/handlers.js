@@ -11,6 +11,7 @@ import * as files from './files.js';
 import * as browser from './browser.js';
 import * as appearance from './appearance.js';
 import { findJarvisDesktopShortcut, findJarvisRoot } from '../../src/utils/jarvisPaths.js';
+import { isJarvisAppName, windowsStartCommand } from '../../src/utils/windowsStart.js';
 
 const execAsync = promisify(exec);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -237,7 +238,7 @@ async function openJarvisDesktopApp() {
 
   if (process.platform === 'win32') {
     if (shortcut) {
-      await execAsync(`start "" "${shortcut}"`, { shell: 'cmd.exe' });
+      await execAsync(windowsStartCommand(shortcut), { shell: 'cmd.exe' });
       return { opened: shortcut, via: 'desktop-shortcut', projectRoot: root };
     }
     const vbs = root ? join(root, 'scripts', 'Jarvis.vbs') : null;
@@ -259,7 +260,7 @@ async function openApp({ app_name }) {
   if (/^https?:\/\//i.test(app_name)) {
     return browser.openUrl({ url: app_name });
   }
-  if (/jarvis/i.test(app_name)) {
+  if (isJarvisAppName(app_name)) {
     try {
       return await openJarvisDesktopApp();
     } catch (err) {
@@ -269,7 +270,7 @@ async function openApp({ app_name }) {
   const platform = process.platform;
   try {
     if (platform === 'win32') {
-      await execAsync(`start "" "${app_name}"`, { shell: 'cmd.exe' });
+      await execAsync(windowsStartCommand(app_name), { shell: 'cmd.exe' });
     } else if (platform === 'darwin') {
       await execAsync(`open -a "${app_name}"`);
     } else {

@@ -61,4 +61,9 @@ REM Bind to loopback so a new public Wi-Fi profile cannot firewall-block boot
 set HOST=127.0.0.1
 
 echo [%date% %time%] npm run dev (OpenAI Realtime) from %CD% >> "%LOG%"
-start "Jarvis" /min cmd /c "npm run dev >> logs\jarvis-boot.log 2>&1"
+echo Starting Jarvis from:
+echo   %CD%
+echo Leave this window open. Companion + Artifacts should appear shortly.
+echo Boot log: %CD%\%LOG%
+call npm run dev
+echo [%date% %time%] npm run dev exited %ERRORLEVEL% >> "%LOG%"

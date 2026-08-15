@@ -42,7 +42,7 @@ foreach ($name in $shortcutNames) {
   $Shortcut.TargetPath = "wscript.exe"
   $Shortcut.Arguments = "`"$desktopVbs`""
   $Shortcut.WorkingDirectory = $desktop
-  $Shortcut.WindowStyle = 7
+  $Shortcut.WindowStyle = 1
   $Shortcut.Description = "Jarvis (Mark 1) — OpenAI desktop companion"
   $Shortcut.Save()
   Write-Host "Desktop shortcut created: $shortcutPath"

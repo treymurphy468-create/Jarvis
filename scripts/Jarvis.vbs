@@ -132,5 +132,5 @@ If Not fso.FileExists(launcher) Then
 End If
 
 shell.CurrentDirectory = projectRoot
-' 7 = minimized — keep a taskbar console so boot errors stay visible
-shell.Run """" & launcher & """ """ & projectRoot & """", 7, False
+' 1 = normal window so missing .env / boot errors are visible on double-click
+shell.Run """" & launcher & """ """ & projectRoot & """", 1, False
