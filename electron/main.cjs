@@ -111,6 +111,8 @@ function createWindows() {
     skipTaskbar: false,
     show: true,
     resizable: true,
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
