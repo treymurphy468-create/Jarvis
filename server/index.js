@@ -202,7 +202,8 @@ Behavior:
 - For "search google" or "look this up", use google_search OR web_search — never both, and only one browser tool per request.
 - For opening a specific URL, use open_url only (do not also call google_search).
 - For "change your colors" or "make yourself blue", use set_appearance.
-- For file tasks, use file_* tools with full paths or ~ paths.
+- For file tasks, use file_* tools with full paths, ~ paths, or Desktop paths such as Desktop\\Jarvis(Mark1).
+- The Windows project folder is usually on the Desktop as Jarvis(Mark1). The desktop app is Jarvis.lnk / Jarvis(Mark1).lnk, which runs wscript.exe → scripts\\Jarvis.vbs (OpenAI Realtime). Use open_app with "Jarvis" to launch that shortcut.
 
 Personality: useful, calm, slightly dry wit. Never sycophantic.`;
 
@@ -350,11 +351,11 @@ export const TOOL_DEFINITIONS = [
   {
     type: 'function',
     name: 'open_app',
-    description: 'Open an application on the computer.',
+    description: 'Open an application on the computer. Use "Jarvis" to launch the Desktop Jarvis(Mark1) shortcut (wscript OpenAI launcher).',
     parameters: {
       type: 'object',
       properties: {
-        app_name: { type: 'string', description: 'App name or path' },
+        app_name: { type: 'string', description: 'App name, path, or Jarvis / Jarvis(Mark1)' },
       },
       required: ['app_name'],
     },
@@ -471,7 +472,7 @@ export const TOOL_DEFINITIONS = [
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Directory path, default ~' },
+        path: { type: 'string', description: 'Directory path. Use Desktop or Desktop\\Jarvis(Mark1) on Windows; default ~' },
         recursive: { type: 'boolean' },
         max_entries: { type: 'number' },
       },
@@ -484,7 +485,7 @@ export const TOOL_DEFINITIONS = [
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string' },
+        path: { type: 'string', description: 'Directory to search. Use Desktop to look for Jarvis(Mark1)' },
         query: { type: 'string' },
         max_results: { type: 'number' },
       },

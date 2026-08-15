@@ -10,6 +10,7 @@ import { broadcast } from '../events.js';
 import * as files from './files.js';
 import * as browser from './browser.js';
 import * as appearance from './appearance.js';
+import { findJarvisDesktopShortcut, findJarvisRoot } from '../../src/utils/jarvisPaths.js';
 
 const execAsync = promisify(exec);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -230,9 +231,40 @@ export async function resolveConfirmation(action_id, approved) {
   return { status: 'approved', action_id, result };
 }
 
+async function openJarvisDesktopApp() {
+  const shortcut = findJarvisDesktopShortcut();
+  const root = findJarvisRoot({ hint: join(__dirname, '..', '..') });
+
+  if (process.platform === 'win32') {
+    if (shortcut) {
+      await execAsync(`start "" "${shortcut}"`, { shell: 'cmd.exe' });
+      return { opened: shortcut, via: 'desktop-shortcut', projectRoot: root };
+    }
+    const vbs = root ? join(root, 'scripts', 'Jarvis.vbs') : null;
+    if (vbs && existsSync(vbs)) {
+      await execAsync(`wscript.exe "${vbs}"`);
+      return { opened: vbs, via: 'wscript', projectRoot: root };
+    }
+  }
+
+  return {
+    error: 'Jarvis desktop shortcut not found',
+    hint: 'On the PC run npm run desktop-shortcut, or put the project folder on the Desktop as Jarvis(Mark1)',
+    projectRoot: root,
+    desktopShortcut: shortcut,
+  };
+}
+
 async function openApp({ app_name }) {
   if (/^https?:\/\//i.test(app_name)) {
     return browser.openUrl({ url: app_name });
+  }
+  if (/jarvis/i.test(app_name)) {
+    try {
+      return await openJarvisDesktopApp();
+    } catch (err) {
+      return { error: `Could not open Jarvis: ${err.message}` };
+    }
   }
   const platform = process.platform;
   try {

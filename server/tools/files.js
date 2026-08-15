@@ -1,11 +1,10 @@
 import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, renameSync, copyFileSync, unlinkSync, existsSync } from 'fs';
-import { join, resolve, dirname, basename } from 'path';
-import { homedir } from 'os';
+import { join, dirname, basename } from 'path';
 import { broadcast } from '../events.js';
+import { resolveUserPath } from '../../src/utils/jarvisPaths.js';
 
 function resolvePath(inputPath) {
-  const expanded = inputPath.replace(/^~/, homedir());
-  return resolve(expanded);
+  return resolveUserPath(inputPath);
 }
 
 export function fileRead({ path, max_chars = 50000 }) {

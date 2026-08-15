@@ -16,6 +16,7 @@
     "electron": "electron .",
     "build": "vite build",
     "desktop-shortcut": "powershell -ExecutionPolicy Bypass -File scripts/create-desktop-shortcut.ps1",
+    "find-jarvis": "node scripts/find-jarvis.js",
     "start": "concurrently -k \"npm run server\" \"wait-on http-get://127.0.0.1:3847/api/health && npm run electron:prod\"",
     "electron:prod": "electron ."
   },

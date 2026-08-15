@@ -40,9 +40,39 @@ npm run dev
 ```
 
 This launches three processes:
-- **Server** on `http://localhost:3847`
-- **Vite dev server** on `http://localhost:5173`
+- **Server** on `http://127.0.0.1:3847`
+- **Vite dev server** on `http://127.0.0.1:5173`
 - **Electron** with two windows (companion + artifacts)
+
+## Launch from the Windows Desktop
+
+The desktop app is a Windows Script Host shortcut (`wscript.exe`), not a folder click. It finds **Jarvis(Mark1)** on your Desktop (including OneDrive Desktop) and starts the OpenAI Realtime build.
+
+Typical locations after you copy or clone the project onto the Desktop:
+
+| What | Path |
+| --- | --- |
+| Project folder | `%USERPROFILE%\Desktop\Jarvis(Mark1)` |
+| OneDrive Desktop | `%USERPROFILE%\OneDrive\Desktop\Jarvis(Mark1)` |
+| Desktop app | `%USERPROFILE%\Desktop\Jarvis.lnk` and `Jarvis(Mark1).lnk` |
+| Launcher | `%USERPROFILE%\Desktop\Jarvis(Mark1).vbs` → `scripts\Jarvis.bat` → `npm run dev` |
+| OpenAI key | `Jarvis(Mark1)\.env` (`OPENAI_API_KEY=...`) |
+
+Create / refresh the Desktop icons from the project folder:
+
+```powershell
+npm run desktop-shortcut
+```
+
+Then double-click **Jarvis** or **Jarvis(Mark1)**. The shortcut runs `wscript.exe` with `Jarvis(Mark1).vbs`, which searches those Desktop folders for a `package.json` named `jarvis-mark1` and boots OpenAI Jarvis.
+
+Print the resolved paths:
+
+```powershell
+npm run find-jarvis
+```
+
+If boot fails, open the minimized **Jarvis** console or `logs\jarvis-boot.log`. The most common miss is a missing `.env` with `OPENAI_API_KEY`.
 
 ## Usage
 
