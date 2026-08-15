@@ -46,6 +46,13 @@ export function normalizePathInput(inputPath) {
   return inputPath.replace(/\\/g, '/');
 }
 
+export function defaultDriveRoot(env = process.env, platform = process.platform) {
+  const raw = env.JARVIS_DRIVE_ROOT || env.SystemDrive || env.SYSTEMDRIVE
+    || (platform === 'win32' ? 'C:' : null);
+  if (!raw) return null;
+  return /[\\/]$/.test(raw) ? raw : `${raw}\\`;
+}
+
 export function desktopCandidateDirs({
   home = homedir(),
   env = process.env,
@@ -63,6 +70,20 @@ export function desktopCandidateDirs({
     env.PUBLIC && join(env.PUBLIC, 'Desktop'),
   ];
   return uniqueExisting(candidates, exists);
+}
+
+export function driveProjectCandidateDirs({
+  driveRoot,
+  env = process.env,
+  exists = existsSync,
+  platform = process.platform,
+} = {}) {
+  const root = driveRoot ?? defaultDriveRoot(env, platform);
+  if (!root) return [];
+  return uniqueExisting(
+    PROJECT_FOLDER_NAMES.map((name) => join(root, name)),
+    exists,
+  );
 }
 
 export function looksLikeJarvisRoot(dir, {
@@ -129,6 +150,8 @@ export function findJarvisRoot({
   exists = existsSync,
   readFile = readFileSync,
   readDir = readdirSync,
+  driveRoot,
+  platform = process.platform,
 } = {}) {
   if (env.JARVIS_ROOT && looksLikeJarvisRoot(normalizePathInput(env.JARVIS_ROOT), { exists, readFile })) {
     return resolve(normalizePathInput(env.JARVIS_ROOT));
@@ -140,6 +163,12 @@ export function findJarvisRoot({
     if (looksLikeJarvisRoot(resolved, { exists, readFile })) return resolved;
     const parent = resolve(resolved, '..');
     if (looksLikeJarvisRoot(parent, { exists, readFile })) return parent;
+  }
+
+  const root = driveRoot ?? defaultDriveRoot(env, platform);
+  if (root) {
+    const fromDrive = scanDesktopsForJarvis([root], { exists, readFile, readDir });
+    if (fromDrive) return fromDrive;
   }
 
   const desktops = desktopCandidateDirs({ home, env, exists });
@@ -208,6 +237,7 @@ export function describeJarvisLaunchPaths(options = {}) {
 
   return {
     projectRoot: root,
+    driveDirs: driveProjectCandidateDirs(options),
     desktopDirs: desktops,
     desktopShortcut: shortcut,
     windowsLauncher: launcher,

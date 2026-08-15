@@ -5,6 +5,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import {
   PROJECT_FOLDER_NAMES,
+  defaultDriveRoot,
   desktopCandidateDirs,
   describeJarvisLaunchPaths,
   expandWindowsEnv,
@@ -121,6 +122,32 @@ describe('jarvis desktop path discovery', () => {
       assert.equal(info.openaiRequired, true);
       assert.equal(info.envReady, true);
       assert.ok(PROJECT_FOLDER_NAMES.includes('Jarvis(Mark1)'));
+    } finally {
+      rmSync(join(user, '..', '..'), { recursive: true, force: true });
+    }
+  });
+
+  it('prefers C:\\Jarvis(Mark1) over a Desktop copy', () => {
+    const { user, desktop, project: desktopProject } = makeTree();
+    const driveRoot = join(user, 'CDrive');
+    const driveProject = join(driveRoot, 'Jarvis(Mark1)');
+    try {
+      mkdirSync(join(driveProject, 'scripts'), { recursive: true });
+      mkdirSync(join(driveProject, 'electron'), { recursive: true });
+      writeFileSync(join(driveProject, 'package.json'), JSON.stringify({ name: 'jarvis-mark1' }));
+      writeFileSync(join(driveProject, 'scripts', 'Jarvis.bat'), '@echo off\n');
+      writeFileSync(join(driveProject, 'electron', 'main.cjs'), 'module.exports = {};\n');
+
+      assert.equal(defaultDriveRoot({ SystemDrive: 'C:' }, 'linux'), 'C:\\');
+      const found = findJarvisRoot({
+        cwd: join(user, 'Documents'),
+        home: user,
+        env: { USERPROFILE: user },
+        driveRoot,
+      });
+      assert.equal(found, driveProject);
+      assert.notEqual(found, desktopProject);
+      assert.ok(desktopProject.startsWith(desktop));
     } finally {
       rmSync(join(user, '..', '..'), { recursive: true, force: true });
     }

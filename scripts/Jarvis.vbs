@@ -1,8 +1,7 @@
 Option Explicit
 
-' Finds Jarvis(Mark1) on the Windows Desktop (including OneDrive Desktop)
+' Finds Jarvis(Mark1) on C:\ first, then the Windows Desktop (including OneDrive Desktop)
 ' and launches the OpenAI Realtime app through scripts\Jarvis.bat.
-' Safe to run from scripts\ or from a copy on the Desktop.
 
 Dim fso, shell, scriptPath, scriptDir, projectRoot, launcher, message, searched
 
@@ -57,18 +56,55 @@ Function LooksLikeJarvis(dir)
   If fso.FileExists(bat) And fso.FileExists(electron) Then LooksLikeJarvis = True
 End Function
 
+Function FindOnDriveC()
+  Dim names, nameArr, i, candidate, folder, subFolders
+  names = "Jarvis(Mark1)|Jarvis (Mark 1)|Jarvis-Mark1|Jarvis Mark 1|jarvis-mark1|Jarvis"
+  nameArr = Split(names, "|")
+
+  searched = AddDir(searched, "C:\")
+  For i = 0 To UBound(nameArr)
+    candidate = "C:\" & nameArr(i)
+    If LooksLikeJarvis(candidate) Then
+      FindOnDriveC = candidate
+      Exit Function
+    End If
+  Next
+
+  On Error Resume Next
+  Set subFolders = fso.GetFolder("C:\").SubFolders
+  If Err.Number = 0 Then
+    For Each folder In subFolders
+      If InStr(1, folder.Name, "jarvis", vbTextCompare) > 0 Then
+        If LooksLikeJarvis(folder.Path) Then
+          FindOnDriveC = folder.Path
+          On Error GoTo 0
+          Exit Function
+        End If
+      End If
+    Next
+  End If
+  Err.Clear
+  On Error GoTo 0
+  FindOnDriveC = ""
+End Function
+
 Function FindOnDesktop()
   Dim desktops, desktopArr, names, nameArr, i, j, desktop, candidate, folder, subFolders
   names = "Jarvis(Mark1)|Jarvis (Mark 1)|Jarvis-Mark1|Jarvis Mark 1|jarvis-mark1|Jarvis"
   desktops = ""
+  searched = AddDir(searched, shell.SpecialFolders("Desktop"))
   desktops = AddDir(desktops, shell.SpecialFolders("Desktop"))
   desktops = AddDir(desktops, shell.ExpandEnvironmentStrings("%USERPROFILE%\Desktop"))
+  searched = AddDir(searched, shell.ExpandEnvironmentStrings("%USERPROFILE%\Desktop"))
   desktops = AddDir(desktops, shell.ExpandEnvironmentStrings("%USERPROFILE%\OneDrive\Desktop"))
+  searched = AddDir(searched, shell.ExpandEnvironmentStrings("%USERPROFILE%\OneDrive\Desktop"))
   desktops = AddDir(desktops, shell.ExpandEnvironmentStrings("%USERPROFILE%\OneDrive - Personal\Desktop"))
+  searched = AddDir(searched, shell.ExpandEnvironmentStrings("%USERPROFILE%\OneDrive - Personal\Desktop"))
   desktops = AddDir(desktops, shell.ExpandEnvironmentStrings("%OneDrive%\Desktop"))
+  searched = AddDir(searched, shell.ExpandEnvironmentStrings("%OneDrive%\Desktop"))
   desktops = AddDir(desktops, shell.ExpandEnvironmentStrings("%PUBLIC%\Desktop"))
+  searched = AddDir(searched, shell.ExpandEnvironmentStrings("%PUBLIC%\Desktop"))
 
-  searched = desktops
   desktopArr = Split(desktops, "|")
   nameArr = Split(names, "|")
 
@@ -112,14 +148,18 @@ If Len(projectRoot) = 0 Then
 End If
 
 If Len(projectRoot) = 0 Then
+  projectRoot = FindOnDriveC()
+End If
+
+If Len(projectRoot) = 0 Then
   projectRoot = FindOnDesktop()
 End If
 
 If Len(projectRoot) = 0 Then
-  message = "Could not find Jarvis(Mark1) on the Desktop." & vbCrLf & vbCrLf & _
+  message = "Could not find Jarvis(Mark1)." & vbCrLf & vbCrLf & _
     "Looked for a folder named Jarvis(Mark1) (or Jarvis) that contains package.json." & vbCrLf & vbCrLf & _
-    "Desktops searched:" & vbCrLf & Replace(searched, "|", vbCrLf) & vbCrLf & vbCrLf & _
-    "Put the project folder on the Desktop, then double-click Jarvis or Jarvis(Mark1)."
+    "Places searched:" & vbCrLf & Replace(searched, "|", vbCrLf) & vbCrLf & vbCrLf & _
+    "Copy the project to C:\Jarvis(Mark1), then double-click Jarvis."
   MsgBox message, 16, "Jarvis (Mark 1)"
   WScript.Quit 1
 End If
