@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, screen, session } = require('electron');
 const path = require('path');
+const { placeJarvisWindows } = require('./windowBounds.cjs');
 
 app.setName('Jarvis');
 app.setAppUserModelId('com.jarvis.mark1');
@@ -40,9 +41,8 @@ function showExistingOrCreate() {
     createWindows();
     return;
   }
-  companionWindow.show();
+  applyBottomRightLayout();
   companionWindow.focus();
-  artifactWindow.show();
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -60,23 +60,36 @@ function getWindow(target) {
   return null;
 }
 
+function currentWorkArea() {
+  const point = screen.getCursorScreenPoint();
+  return screen.getDisplayNearestPoint(point).workArea;
+}
+
+function applyBottomRightLayout() {
+  const { companion, artifact } = placeJarvisWindows(currentWorkArea());
+  if (!isGone(companionWindow)) {
+    companionWindow.setBounds(companion);
+    companionWindow.setAlwaysOnTop(true, 'pop-up-menu');
+    companionWindow.show();
+    companionWindow.moveTop();
+  }
+  if (!isGone(artifactWindow)) {
+    artifactWindow.setBounds(artifact);
+    artifactWindow.show();
+  }
+}
+
 function createWindows() {
   if (!isGone(companionWindow) && !isGone(artifactWindow)) {
-    showExistingOrCreate();
+    applyBottomRightLayout();
+    companionWindow.focus();
     return;
   }
 
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-  const companionWidth = 320;
-  const companionHeight = 420;
-  const artifactWidth = 520;
-  const artifactHeight = 640;
+  const { companion, artifact } = placeJarvisWindows(currentWorkArea());
 
   companionWindow = new BrowserWindow({
-    width: companionWidth,
-    height: companionHeight,
-    x: Math.max(0, width - companionWidth - 20),
-    y: Math.max(0, height - companionHeight - 20),
+    ...companion,
     title: 'Jarvis',
     frame: false,
     transparent: false,
@@ -93,10 +106,7 @@ function createWindows() {
   });
 
   artifactWindow = new BrowserWindow({
-    width: artifactWidth,
-    height: artifactHeight,
-    x: Math.max(0, width - companionWidth - artifactWidth - 40),
-    y: Math.max(0, height - artifactHeight - 20),
+    ...artifact,
     title: 'Jarvis Artifacts',
     show: true,
     backgroundColor: '#0b0f14',
@@ -112,6 +122,11 @@ function createWindows() {
   companionWindow.setTitle('Jarvis');
   artifactWindow.setTitle('Jarvis Artifacts');
 
+  companionWindow.once('ready-to-show', () => {
+    applyBottomRightLayout();
+    companionWindow.focus();
+  });
+
   if (isDev) {
     loadWithRetry(companionWindow, `${VITE_URL}?window=companion&autovoice=1`);
     loadWithRetry(artifactWindow, `${VITE_URL}?window=artifact`);
@@ -119,6 +134,8 @@ function createWindows() {
     companionWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=companion&autovoice=1' });
     artifactWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=artifact' });
   }
+
+  applyBottomRightLayout();
 }
 
 ipcMain.handle('toggle-artifact-fullscreen', () => {
