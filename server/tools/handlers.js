@@ -293,7 +293,7 @@ async function readScreen({ region = 'full' }) {
 
   broadcast({
     type: 'artifact',
-    data: { type: 'image', title: 'Screen capture', content: `http://localhost:${process.env.PORT || 3847}/screenshots/${filename}` },
+    data: { type: 'image', title: 'Screen capture', content: `http://127.0.0.1:${process.env.PORT || 3847}/screenshots/${filename}` },
   });
 
   // Use vision to describe screen

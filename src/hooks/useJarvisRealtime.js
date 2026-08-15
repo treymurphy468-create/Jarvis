@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { SERVER } from './useEventStream';
+import { SERVER } from '../config';
 import { dispatchCreditsUpdate } from './useUsageStats';
 import { parseApiError, clearVoiceLimited, getStoredLimitError } from '../utils/parseApiError';
 
@@ -248,6 +248,17 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
         audioEl.srcObject = e.streams[0];
         startAudioMonitor(e.streams[0]);
       };
+      pc.oniceconnectionstatechange = () => {
+        if (pcRef.current !== pc) return;
+        if (pc.iceConnectionState !== 'failed') return;
+        tearDownConnection();
+        connectingRef.current = false;
+        setConnecting(false);
+        setError('Voice connection failed on this network. Press Start voice to retry.');
+        setErrorInfo({ friendly: 'Voice connection failed on this network', code: 'ice_failed', retryable: true });
+        setMood('concerned');
+        setStatus('Voice connection failed on this network. Press Start voice to retry.');
+      };
 
       const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
       pc.addTrack(ms.getTracks()[0]);
@@ -303,7 +314,13 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
 
       await pc.setRemoteDescription({ type: 'answer', sdp: await sdpResponse.text() });
     } catch (err) {
-      const info = parseApiError(err.message || 'Connection failed');
+      const micDenied = err?.name === 'NotAllowedError' || err?.name === 'NotReadableError';
+      const micMissing = err?.name === 'NotFoundError';
+      const info = micDenied
+        ? { friendly: 'Microphone blocked. Allow mic access and press Start voice.', code: 'mic_denied', retryable: true }
+        : micMissing
+          ? { friendly: 'No microphone found.', code: 'mic_missing', retryable: false }
+          : parseApiError(err.message || 'Connection failed');
       tearDownConnection();
       connectingRef.current = false;
       setConnecting(false);

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-const SERVER = 'http://localhost:3847';
+import { SERVER, WS_URL } from '../config';
 
 // Shared state across companion + artifact windows via localStorage events
 const STORAGE_KEY = 'jarvis_events';
@@ -47,21 +46,34 @@ export function useEventStream() {
   }, []);
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:3847/ws/events');
-    wsRef.current = ws;
-    ws.onmessage = (e) => {
-      try {
-        applyEvent(JSON.parse(e.data));
-      } catch { /* ignore */ }
+    let closed = false;
+    let socket;
+    let retryTimer;
+
+    const connectWs = () => {
+      if (closed) return;
+      socket = new WebSocket(WS_URL);
+      wsRef.current = socket;
+      socket.onmessage = (e) => {
+        try {
+          applyEvent(JSON.parse(e.data));
+        } catch { /* ignore */ }
+      };
+      socket.onerror = () => {
+        socket.close();
+      };
+      socket.onclose = () => {
+        if (closed) return;
+        retryTimer = setTimeout(connectWs, 1500);
+      };
     };
-    ws.onclose = () => {
-      setTimeout(() => {
-        if (wsRef.current === ws) {
-          wsRef.current = new WebSocket('ws://localhost:3847/ws/events');
-        }
-      }, 2000);
+
+    connectWs();
+    return () => {
+      closed = true;
+      clearTimeout(retryTimer);
+      socket?.close();
     };
-    return () => ws.close();
   }, [applyEvent]);
 
   useEffect(() => {
