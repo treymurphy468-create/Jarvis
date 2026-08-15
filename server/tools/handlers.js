@@ -250,7 +250,7 @@ async function openJarvisDesktopApp() {
 
   return {
     error: 'Jarvis desktop shortcut not found',
-    hint: 'On the PC run npm run desktop-shortcut, or put the project folder on the Desktop as Jarvis(Mark1)',
+    hint: 'On the PC run npm run desktop-shortcut from C:\\Jarvis(Mark1), or copy the project there',
     projectRoot: root,
     desktopShortcut: shortcut,
   };

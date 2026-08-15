@@ -46,17 +46,14 @@ This launches three processes:
 
 ## Launch from the Windows Desktop
 
-The desktop app is a Windows Script Host shortcut (`wscript.exe`), not a folder click. It finds **Jarvis(Mark1)** on your Desktop (including OneDrive Desktop) and starts the OpenAI Realtime build.
-
-Typical locations after you copy or clone the project onto the Desktop:
+The desktop shortcut starts **C:\Jarvis(Mark1)** when that folder exists (preferred over a Desktop / OneDrive copy). It runs `scripts\Jarvis.bat` → `npm run dev`.
 
 | What | Path |
 | --- | --- |
-| Project folder | `%USERPROFILE%\Desktop\Jarvis(Mark1)` |
-| OneDrive Desktop | `%USERPROFILE%\OneDrive\Desktop\Jarvis(Mark1)` |
+| Working copy | `C:\Jarvis(Mark1)` |
+| Desktop / OneDrive copy | `%USERPROFILE%\Desktop\Jarvis(Mark1)` or `%USERPROFILE%\OneDrive\Desktop\Jarvis(Mark1)` |
 | Desktop app | `%USERPROFILE%\Desktop\Jarvis.lnk` and `Jarvis(Mark1).lnk` |
-| Launcher | `%USERPROFILE%\Desktop\Jarvis(Mark1).vbs` → `scripts\Jarvis.bat` → `npm run dev` |
-| OpenAI key | `Jarvis(Mark1)\.env` (`OPENAI_API_KEY=...`) |
+| OpenAI key | `C:\Jarvis(Mark1)\.env` (`OPENAI_API_KEY=...`) |
 
 Create / refresh the Desktop icons from the project folder:
 
@@ -64,7 +61,7 @@ Create / refresh the Desktop icons from the project folder:
 npm run desktop-shortcut
 ```
 
-Then double-click **Jarvis** or **Jarvis(Mark1)**. The shortcut runs `wscript.exe` with `Jarvis(Mark1).vbs`, which searches those Desktop folders for a `package.json` named `jarvis-mark1` and boots OpenAI Jarvis.
+Then double-click **Jarvis** or **Jarvis(Mark1)**. The shortcut points at `C:\Jarvis(Mark1)\scripts\Jarvis.bat` when that copy exists.
 
 Print the resolved paths:
 
