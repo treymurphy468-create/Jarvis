@@ -4,6 +4,9 @@ const { placeJarvisWindows } = require('./windowBounds.cjs');
 
 app.setName('Jarvis');
 app.setAppUserModelId('com.jarvis.mark1');
+if (process.platform === 'win32') {
+  app.disableHardwareAcceleration();
+}
 
 const isDev = !app.isPackaged;
 const VITE_URL = 'http://127.0.0.1:5173';
@@ -92,8 +95,9 @@ function createWindows() {
     ...companion,
     title: 'Jarvis',
     frame: false,
-    transparent: false,
-    backgroundColor: '#000000',
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: true,
     alwaysOnTop: true,
     skipTaskbar: false,
     show: true,
