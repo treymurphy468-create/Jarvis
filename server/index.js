@@ -39,7 +39,16 @@ app.post('/api/realtime/session', async (req, res) => {
       model: 'gpt-realtime-2.1',
       instructions: JARVIS_INSTRUCTIONS,
       audio: {
-        input: { turn_detection: { type: 'server_vad', interrupt_response: true } },
+        input: {
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.4,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 500,
+            create_response: true,
+            interrupt_response: true,
+          },
+        },
         output: { voice: 'verse' },
       },
       tools: TOOL_DEFINITIONS,

@@ -132,5 +132,5 @@ If Not fso.FileExists(launcher) Then
 End If
 
 shell.CurrentDirectory = projectRoot
-' 7 = minimized — keep a taskbar console so boot errors stay visible
+' 7 = minimized; Jarvis.bat also self-minimizes. Boot errors go to logs\jarvis-boot.log.
 shell.Run """" & launcher & """ """ & projectRoot & """", 7, False

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForHealth } from './waitForHealth.js';
+import { waitForHealth, waitForHttpOk } from './waitForHealth.js';
 
 describe('waitForHealth', () => {
   it('returns health JSON when the server answers', async () => {
@@ -28,6 +28,19 @@ describe('waitForHealth', () => {
       const health = await waitForHealth('http://127.0.0.1:3847', { attempts: 3, delayMs: 1 });
       assert.equal(health, null);
       assert.equal(calls, 3);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('waitForHttpOk is true for any 200 URL including Vite', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      assert.equal(url, 'http://127.0.0.1:5173/');
+      return { ok: true };
+    };
+    try {
+      assert.equal(await waitForHttpOk('http://127.0.0.1:5173/', { attempts: 1 }), true);
     } finally {
       globalThis.fetch = originalFetch;
     }

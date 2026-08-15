@@ -174,7 +174,22 @@ export default function CompanionWindow() {
     <div className={`companion-window${isRateLimited ? ' rate-limited' : ''}`}>
       <div className="companion-header">
         <span className="companion-title">Jarvis</span>
-        <span className={`status-dot ${connected ? 'live' : isRateLimited ? 'limited' : connecting ? 'connecting' : ''}`} />
+        <div className="companion-header-right">
+          <span
+            className={`status-dot ${connected ? 'live' : isRateLimited ? 'limited' : connecting ? 'connecting' : ''}`}
+            title="Voice status"
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            className="companion-close"
+            aria-label="Close Jarvis"
+            title="Close Jarvis"
+            onClick={() => window.jarvis?.quit?.()}
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <CompanionFace
@@ -185,9 +200,7 @@ export default function CompanionWindow() {
       />
 
       <UsageBars
-        credits={usageStats?.credits}
         session={usageStats?.session}
-        creditsLimited={errorInfo?.code === 'quota'}
         sessionLimited={errorInfo?.code === 'rate_limit'}
       />
 

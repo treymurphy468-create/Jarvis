@@ -1,5 +1,12 @@
 const { app, BrowserWindow, ipcMain, screen, session } = require('electron');
 const path = require('path');
+const { placeJarvisWindows } = require('./windowBounds.cjs');
+
+app.setName('Jarvis');
+app.setAppUserModelId('com.jarvis.mark1');
+if (process.platform === 'win32') {
+  app.disableHardwareAcceleration();
+}
 
 const isDev = !app.isPackaged;
 const VITE_URL = 'http://127.0.0.1:5173';
@@ -7,17 +14,59 @@ const VITE_URL = 'http://127.0.0.1:5173';
 let companionWindow;
 let artifactWindow;
 
-// Focus existing instance if user opens Jarvis again from desktop
+function isGone(win) {
+  return !win || win.isDestroyed();
+}
+
+let quitting = false;
+function quitJarvis() {
+  if (quitting) return;
+  quitting = true;
+  if (!isGone(artifactWindow)) artifactWindow.close();
+  if (!isGone(companionWindow)) companionWindow.close();
+  app.quit();
+}
+
+function loadWithRetry(win, url, { showOnLoad = true } = {}) {
+  let loaded = false;
+  const reveal = () => {
+    if (!showOnLoad || isGone(win)) return;
+    win.show();
+  };
+  const tryLoad = () => {
+    if (loaded || isGone(win)) return;
+    win.loadURL(url).then(() => {
+      loaded = true;
+      reveal();
+    }).catch(() => {
+      setTimeout(tryLoad, 400);
+    });
+  };
+  win.webContents.on('did-finish-load', () => {
+    loaded = true;
+    reveal();
+  });
+  win.webContents.on('did-fail-load', () => {
+    if (!loaded) setTimeout(tryLoad, 400);
+  });
+  tryLoad();
+}
+
+function showExistingOrCreate() {
+  if (isGone(companionWindow) || isGone(artifactWindow)) {
+    createWindows();
+    return;
+  }
+  applyBottomRightLayout();
+  companionWindow.focus();
+}
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (companionWindow) {
-      companionWindow.show();
-      companionWindow.focus();
-    }
-    if (artifactWindow) artifactWindow.show();
+    showExistingOrCreate();
   });
 }
 
@@ -27,18 +76,46 @@ function getWindow(target) {
   return null;
 }
 
+function currentWorkArea() {
+  const point = screen.getCursorScreenPoint();
+  return screen.getDisplayNearestPoint(point).workArea;
+}
+
+function applyBottomRightLayout() {
+  const { companion, artifact } = placeJarvisWindows(currentWorkArea());
+  if (!isGone(companionWindow)) {
+    companionWindow.setBounds(companion);
+    companionWindow.setAlwaysOnTop(true, 'pop-up-menu');
+    companionWindow.show();
+    companionWindow.moveTop();
+  }
+  if (!isGone(artifactWindow)) {
+    artifactWindow.setBounds(artifact);
+  }
+}
+
 function createWindows() {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  if (!isGone(companionWindow) && !isGone(artifactWindow)) {
+    applyBottomRightLayout();
+    companionWindow.focus();
+    return;
+  }
+
+  const { companion, artifact } = placeJarvisWindows(currentWorkArea());
 
   companionWindow = new BrowserWindow({
-    width: 320,
-    height: 420,
-    x: width - 340,
-    y: height - 440,
+    ...companion,
+    title: 'Jarvis',
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: true,
     alwaysOnTop: true,
+    skipTaskbar: false,
+    show: true,
     resizable: true,
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -47,11 +124,11 @@ function createWindows() {
   });
 
   artifactWindow = new BrowserWindow({
-    width: 520,
-    height: 640,
-    x: width - 880,
-    y: height - 660,
-    show: true,
+    ...artifact,
+    title: 'Jarvis Artifacts',
+    show: false,
+    skipTaskbar: true,
+    backgroundColor: '#0b0f14',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -59,16 +136,32 @@ function createWindows() {
     },
   });
 
+  companionWindow.on('closed', () => {
+    companionWindow = null;
+    if (!quitting) quitJarvis();
+  });
+  artifactWindow.on('closed', () => { artifactWindow = null; });
+  companionWindow.setTitle('Jarvis');
+  artifactWindow.setTitle('Jarvis Artifacts');
+
+  companionWindow.once('ready-to-show', () => {
+    applyBottomRightLayout();
+    companionWindow.focus();
+  });
+
   if (isDev) {
-    companionWindow.loadURL(`${VITE_URL}?window=companion&autovoice=1`);
-    artifactWindow.loadURL(`${VITE_URL}?window=artifact`);
+    loadWithRetry(companionWindow, `${VITE_URL}?window=companion&autovoice=1`);
+    loadWithRetry(artifactWindow, `${VITE_URL}?window=artifact`, { showOnLoad: false });
   } else {
     companionWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=companion&autovoice=1' });
     artifactWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=artifact' });
   }
+
+  applyBottomRightLayout();
 }
 
 ipcMain.handle('toggle-artifact-fullscreen', () => {
+  if (isGone(artifactWindow)) return false;
   if (artifactWindow.isFullScreen()) {
     artifactWindow.setFullScreen(false);
   } else {
@@ -84,7 +177,7 @@ ipcMain.handle('get-window-type', (event) => {
 });
 
 ipcMain.handle('set-title', (_event, title) => {
-  if (companionWindow) companionWindow.setTitle(title);
+  if (!isGone(companionWindow)) companionWindow.setTitle(title);
   return true;
 });
 
@@ -94,7 +187,7 @@ ipcMain.handle('window-control', (_event, cmd) => {
     : [getWindow(cmd.target)].filter(Boolean);
 
   for (const win of targets) {
-    if (!win) continue;
+    if (isGone(win)) continue;
     switch (cmd.action) {
       case 'move':
         if (cmd.x != null && cmd.y != null) win.setPosition(Math.round(cmd.x), Math.round(cmd.y));
@@ -122,20 +215,27 @@ ipcMain.handle('window-control', (_event, cmd) => {
   return { ok: true, cmd };
 });
 
-app.whenReady().then(() => {
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(permission === 'media' || permission === 'microphone');
-  });
-  session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
-    return permission === 'media' || permission === 'microphone';
-  });
-  createWindows();
+ipcMain.handle('quit-app', () => {
+  quitJarvis();
+  return true;
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+if (gotLock) {
+  app.whenReady().then(() => {
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission === 'media' || permission === 'microphone');
+    });
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
+      return permission === 'media' || permission === 'microphone';
+    });
+    createWindows();
+  });
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindows();
-});
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindows();
+  });
+}

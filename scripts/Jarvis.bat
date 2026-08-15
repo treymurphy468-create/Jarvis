@@ -2,6 +2,13 @@
 title Jarvis
 setlocal
 
+REM Keep the boot console off the desktop. Errors still land in logs\jarvis-boot.log.
+if /I not "%JARVIS_MINIMIZED%"=="1" (
+  set JARVIS_MINIMIZED=1
+  start "Jarvis" /min cmd /c ""%~f0" %*"
+  exit /b 0
+)
+
 REM Optional first argument is the project root discovered by Jarvis.vbs
 if not "%~1"=="" (
   cd /d "%~1"
@@ -60,5 +67,16 @@ if errorlevel 1 (
 REM Bind to loopback so a new public Wi-Fi profile cannot firewall-block boot
 set HOST=127.0.0.1
 
+REM Stop a leftover Jarvis so double-click can open a fresh console + windows
+taskkill /F /IM electron.exe >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3847" ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5173" ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>&1
+
 echo [%date% %time%] npm run dev (OpenAI Realtime) from %CD% >> "%LOG%"
-start "Jarvis" /min cmd /c "npm run dev >> logs\jarvis-boot.log 2>&1"
+echo Starting Jarvis from:
+echo   %CD%
+echo Companion HUD should appear shortly. Artifacts stays hidden.
+echo Boot log: %CD%\%LOG%
+call npm run dev
+echo [%date% %time%] npm run dev exited %ERRORLEVEL% >> "%LOG%"
+if not %ERRORLEVEL%==0 pause

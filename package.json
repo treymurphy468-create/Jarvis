@@ -5,7 +5,7 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "concurrently -k \"npm run server\" \"npm run vite\" \"wait-on http-get://127.0.0.1:5173 http-get://127.0.0.1:3847/api/health && npm run electron\"",
+    "dev": "node scripts/free-loopback-ports.js && concurrently -k \"npm run server\" \"npm run vite\" \"node scripts/wait-and-launch-electron.js\"",
     "test": "node --test src/config.test.js src/utils/*.test.js",
     "dev:ollama-test": "powershell -ExecutionPolicy Bypass -File scripts/run-ollama-test.ps1",
     "backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-realtime.ps1",
