@@ -175,7 +175,11 @@ export default function CompanionWindow() {
       <div className="companion-header">
         <span className="companion-title">Jarvis</span>
         <div className="companion-header-right">
-          <span className={`status-dot ${connected ? 'live' : isRateLimited ? 'limited' : connecting ? 'connecting' : ''}`} />
+          <span
+            className={`status-dot ${connected ? 'live' : isRateLimited ? 'limited' : connecting ? 'connecting' : ''}`}
+            title="Voice status"
+            aria-hidden="true"
+          />
           <button
             type="button"
             className="companion-close"

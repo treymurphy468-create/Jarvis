@@ -2,6 +2,13 @@
 title Jarvis
 setlocal
 
+REM Keep the boot console off the desktop. Errors still land in logs\jarvis-boot.log.
+if /I not "%JARVIS_MINIMIZED%"=="1" (
+  set JARVIS_MINIMIZED=1
+  start "Jarvis" /min cmd /c ""%~f0" %*"
+  exit /b 0
+)
+
 REM Optional first argument is the project root discovered by Jarvis.vbs
 if not "%~1"=="" (
   cd /d "%~1"
@@ -68,7 +75,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5173" ^| findstr LISTENING'
 echo [%date% %time%] npm run dev (OpenAI Realtime) from %CD% >> "%LOG%"
 echo Starting Jarvis from:
 echo   %CD%
-echo Leave this window open. Companion + Artifacts should appear shortly.
+echo Companion HUD should appear shortly. Artifacts stays hidden.
 echo Boot log: %CD%\%LOG%
 call npm run dev
 echo [%date% %time%] npm run dev exited %ERRORLEVEL% >> "%LOG%"

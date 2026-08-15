@@ -60,31 +60,33 @@ body {
 .companion-header-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   -webkit-app-region: no-drag;
 }
 
+/* Far-right slot (where the status light used to sit). Status light stays immediately left. */
 .companion-close {
   -webkit-app-region: no-drag;
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 50%;
-  background: transparent;
-  color: var(--muted);
-  font-size: 15px;
+  background: #e81123;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 0 8px rgba(232, 17, 35, 0.55);
 }
 
 .companion-close:hover {
-  color: var(--danger);
-  border-color: var(--danger);
-  background: rgba(232, 93, 93, 0.12);
+  background: #ff2d3a;
+  color: #ffffff;
 }
 
 .status-dot {

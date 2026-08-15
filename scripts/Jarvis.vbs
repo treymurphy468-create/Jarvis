@@ -132,5 +132,5 @@ If Not fso.FileExists(launcher) Then
 End If
 
 shell.CurrentDirectory = projectRoot
-' 1 = normal window so missing .env / boot errors are visible on double-click
-shell.Run """" & launcher & """ """ & projectRoot & """", 1, False
+' 7 = minimized; Jarvis.bat also self-minimizes. Boot errors go to logs\jarvis-boot.log.
+shell.Run """" & launcher & """ """ & projectRoot & """", 7, False

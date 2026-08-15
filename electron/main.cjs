@@ -27,20 +27,24 @@ function quitJarvis() {
   app.quit();
 }
 
-function loadWithRetry(win, url) {
+function loadWithRetry(win, url, { showOnLoad = true } = {}) {
   let loaded = false;
+  const reveal = () => {
+    if (!showOnLoad || isGone(win)) return;
+    win.show();
+  };
   const tryLoad = () => {
     if (loaded || isGone(win)) return;
     win.loadURL(url).then(() => {
       loaded = true;
-      if (!isGone(win)) win.show();
+      reveal();
     }).catch(() => {
       setTimeout(tryLoad, 400);
     });
   };
   win.webContents.on('did-finish-load', () => {
     loaded = true;
-    if (!isGone(win)) win.show();
+    reveal();
   });
   win.webContents.on('did-fail-load', () => {
     if (!loaded) setTimeout(tryLoad, 400);
@@ -87,7 +91,6 @@ function applyBottomRightLayout() {
   }
   if (!isGone(artifactWindow)) {
     artifactWindow.setBounds(artifact);
-    artifactWindow.show();
   }
 }
 
@@ -123,7 +126,8 @@ function createWindows() {
   artifactWindow = new BrowserWindow({
     ...artifact,
     title: 'Jarvis Artifacts',
-    show: true,
+    show: false,
+    skipTaskbar: true,
     backgroundColor: '#0b0f14',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -147,7 +151,7 @@ function createWindows() {
 
   if (isDev) {
     loadWithRetry(companionWindow, `${VITE_URL}?window=companion&autovoice=1`);
-    loadWithRetry(artifactWindow, `${VITE_URL}?window=artifact`);
+    loadWithRetry(artifactWindow, `${VITE_URL}?window=artifact`, { showOnLoad: false });
   } else {
     companionWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=companion&autovoice=1' });
     artifactWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: '?window=artifact' });
