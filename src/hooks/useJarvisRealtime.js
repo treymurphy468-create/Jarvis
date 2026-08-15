@@ -260,8 +260,19 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
         setStatus('Voice connection failed on this network. Press Start voice to retry.');
       };
 
-      const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-      pc.addTrack(ms.getTracks()[0]);
+      const ms = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
+      });
+      for (const track of ms.getAudioTracks()) {
+        track.enabled = true;
+        pc.addTrack(track, ms);
+      }
+      startAudioMonitor(ms);
 
       const dc = pc.createDataChannel('oai-events');
       dcRef.current = dc;
@@ -275,6 +286,23 @@ export function useJarvisRealtime({ onToolCall, setAudioLevel, setSpeechPulse, s
         setErrorInfo(null);
         setStatus('Listening');
         setMood('listening');
+        dc.send(JSON.stringify({
+          type: 'session.update',
+          session: {
+            audio: {
+              input: {
+                turn_detection: {
+                  type: 'server_vad',
+                  threshold: 0.4,
+                  prefix_padding_ms: 300,
+                  silence_duration_ms: 500,
+                  create_response: true,
+                  interrupt_response: true,
+                },
+              },
+            },
+          },
+        }));
         if (greet && greetMessage) {
           dc.send(JSON.stringify({
             type: 'conversation.item.create',
